@@ -1,1177 +1,783 @@
-# M1. Authentication and User Management
+# M2. Product Catalog
 
-**Project:** Brightloop Subscription Management System\
-**Feature ID:** M1\
-**Feature name:** Authentication and User Management\
-**Priority:** Must-have\
-**Source specification:** `REQUIREMENTS.md` v2.0, Section 5.1\
-**Supporting documents:** `CODING_STANDARDS.md`, `UI_UX.md` v1.0\
-**Feature status:** Specification baseline --- implementation status has
-not been verified\
-**Last updated:** 2026-10-31
+**Project:** Brightloop Subscription Management System  
+**Module:** M2 — Product Catalog  
+**Document type:** Current feature specification / implementation baseline  
+**Status:** Draft — pending confirmation of the open decisions listed below  
+**Primary source:** `REQUIREMENTS.md` v2.0  
+**Supporting sources:** `UI_UX.md` and `CODING_STANDARDS.md`
 
-------------------------------------------------------------------------
+> This document defines the expected behavior and acceptance baseline for M2. It does not claim that the feature has already been implemented. The requirements document remains the source of truth. Where the source documents are silent or explicitly leave a decision open, this specification records the gap instead of silently turning an assumption into a requirement.
 
-## 1. Feature overview
+---
 
-M1 provides the identity, authentication, account-management,
-authorization, and customer-data-isolation foundation for Brightloop.
+## 1. Purpose and scope
 
-The system supports three account roles:
+M2 provides the administrative catalog used to define the products that can later be placed on subscription lines. A product stores its commercial identity, type, sales price, cost price, notes, associated tax, and optional variants. Products may be used as recurring subscription items or as add-ons.
 
--   **Admin** --- controls the system and is the only role permitted to
-    create Staff accounts.
--   **Internal Staff** --- performs permitted day-to-day subscription
-    and billing operations, but cannot manage users or restricted
-    commercial configuration.
--   **Customer** --- uses the self-service portal and can access only
-    their own subscriptions, invoices, and payments.
-
-Customers must be able to create an account using an email address and
-password, sign in, and recover access through a password-reset link. The
-system must enforce role permissions on the server, not merely hide
-unavailable controls in the interface.
-
-M1 is a security-critical foundation for the rest of the application.
-All protected features must rely on the authenticated user and the
-authorization rules defined here.
+The catalog is intended to give Admins one place to maintain product information and pricing while ensuring Staff and Customers cannot change catalog configuration.
 
 ### 1.1 Goals
 
-1.  Allow customers to register and authenticate securely.
-2.  Ensure that one email address maps to at most one account,
-    regardless of letter casing.
-3.  Enforce the specified password policy.
-4.  Provide secure, single-use, time-limited password reset.
-5.  Support Admin, Staff, and Customer roles with server-side role-based
-    access control (RBAC).
-6.  Restrict Staff account creation to Admins.
-7.  Prevent customers from reading or modifying another customer's
-    records.
-8.  Store passwords only as secure salted hashes.
+1. Allow an Admin to create, view, edit, and archive products.
+2. Store the required product attributes: name, type, sales price, cost price, and notes.
+3. Associate every product with one tax record.
+4. Support optional product variants and a price adjustment for each variant value.
+5. Make product pricing and tax information available to later subscription and billing modules.
+6. Preserve the meaning of existing subscription and invoice history when a product is edited or archived.
+7. Enforce catalog permissions on the server, not only in the interface.
 
-### 1.2 Out of scope
+### 1.2 In scope
 
-The source requirements do not define the following as part of M1. They
-must not be treated as committed functionality without a separate
-requirement or product decision:
+- Admin-only product catalog list and detail views.
+- Product creation and editing.
+- Product archiving and active/archived status display.
+- Product fields and validation.
+- Product-to-tax association, using the Tax entity managed under M9.
+- Variant dimensions/values and per-value price adjustments.
+- Base-price and adjusted-price preview in the variant editor.
+- Product availability for later subscription-line selection.
+- Automated tests for catalog behavior, pricing adjustments, validation, and permissions.
 
--   Social login or third-party identity providers.
--   Multi-factor authentication (MFA/2FA).
--   Email verification before account activation.
--   CAPTCHA or bot-detection integration.
--   Self-service role changes.
--   Customer profile editing beyond the account/security entry points
-    described in the UI/UX specification.
--   Account deletion, account suspension workflows, or account recovery
-    by support.
--   A public Staff or Admin registration flow.
--   A public online-payment flow.
--   A full audit-log user interface.
--   A specific session lifetime, idle timeout, or concurrent-session
-    policy.
+### 1.3 Out of scope
 
-------------------------------------------------------------------------
+The following are not defined as M2 deliverables by the source requirements and must not be added without a separate decision or requirement:
+
+- Tax creation, editing, or tax-rate administration (M9 owns this).
+- Payment-term management (M9).
+- Plan creation or plan pricing (M3).
+- Quotation templates and subscriptions (M4), except for making catalog products available to those workflows.
+- Invoice generation, invoice-line snapshots, billing, or payment collection (M5/M7).
+- Discount rules or discount calculation (M6).
+- Region-based, customer-specific, or multi-jurisdiction tax calculation.
+- Multi-currency or multi-company catalog support.
+- Inventory, stock levels, warehouses, procurement, or fulfillment.
+- Product images, file attachments, SKUs, barcodes, categories, tags, or product search facets unless separately approved.
+- Complex configurable variant combinations until the combination and adjustment rules are confirmed.
+- Customer-facing product browsing or direct product purchasing.
+
+---
 
 ## 2. Requirement traceability
 
-All requirements below are **Must (M)** unless stated otherwise.
+All listed requirements are **Must (M)** in `REQUIREMENTS.md`.
 
-  -----------------------------------------------------------------------
-  Requirement             Description             Feature behavior
-  ----------------------- ----------------------- -----------------------
-  FR-1.1                  A customer can sign up  Public registration
-                          with an email and a     creates a Customer
-                          password.               account.
+| Requirement | Source requirement | M2 behavior |
+|---|---|---|
+| FR-2.1 | Admin can create, edit, and archive products with name, type, sales price, cost price, and notes. | Provide Admin-only create, edit, archive, list, and detail behavior for those fields. |
+| FR-2.2 | A product can have variants (for example, by brand) with a price adjustment per variant value. | Allow variant values to carry a monetary adjustment and show the adjusted-price preview. |
+| FR-2.3 | Each product has an associated tax (see M9). | Require a valid associated Tax record for each product. M2 consumes tax records; M9 manages them. |
+| FR-2.4 | Products can be used as recurring items or add-ons on subscription lines. | Expose active products to subscription-line selection; represent add-ons as subscription lines in M4. |
 
-  FR-1.2                  Each email can belong   Normalize/compare email
-                          to only one account     identities consistently
-                          (unique,                and enforce uniqueness
-                          case-insensitive).      in PostgreSQL.
+### 2.1 Related requirements and rules
 
-  FR-1.3                  Password policy: more   Validate the policy on
-                          than 8 characters, at   the server and explain
-                          least one uppercase     unmet rules in the
-                          letter, one lowercase   form.
-                          letter, and one special 
-                          character.              
+- **Role matrix, Section 4:** only Admin can manage products and variants. Staff and Customer are denied catalog-management access. Unlisted permissions are denied by default.
+- **BR-8:** tax comes only from the product's tax.
+- **BR-13:** prices are tax-exclusive; tax is added on top. This is a working assumption recorded in the requirements and Open Item B.
+- **BR-14:** the system assumes one currency and one company; this remains subject to confirmation under Open Item D.
+- **NFR-5:** relevant Admin changes are auditable with user and timestamp.
+- **NFR-10:** monetary values use fixed-precision decimals, never floating point.
+- **Domain entities:** `Product` contains name, type, sales price, cost price, notes, and tax; `ProductVariant` stores a variant value and its price adjustment; `Tax` stores a name and rate.
 
-  FR-1.4                  Forgot password sends a Use Django's
-                          reset link to the       password-reset token
-                          registered email; the   mechanism and a neutral
-                          link is single-use and  response.
-                          time-limited.           
+---
 
-  FR-1.5                  RBAC with Admin, Staff, Centralize permission
-                          and Customer, enforced  checks and deny access
-                          server-side according   by default.
-                          to Requirements Section 
-                          4.                      
-
-  FR-1.6                  Only an Admin can       Ignore any submitted
-                          create Staff accounts.  role value during
-                          Public signup always    public signup.
-                          creates a Customer.     
-
-  FR-1.7                  Customers can only      Scope customer-facing
-                          access their own        data access to the
-                          subscriptions,          authenticated user's
-                          invoices, and payments. linked Customer record.
-
-  FR-1.8                  Passwords are stored as Use Django password
-                          salted hashes, never in hashers; never store or
-                          plain text.             log raw passwords.
-  -----------------------------------------------------------------------
-
-Related source rules:
-
--   **BR-1:** One account per email address.
--   **BR-2:** Only Admin creates Staff; public signup creates Customers
-    only.
--   **NFR-4:** Server-side RBAC, hashed passwords, expiring single-use
-    reset tokens, customer data isolation, and protection against common
-    web attacks.
--   **NFR-5:** Relevant changes must be auditable with user and
-    timestamp where the underlying operation is covered by the system's
-    audit requirements.
-
-------------------------------------------------------------------------
-
-## 3. Roles and account model
+## 3. Roles and permissions
 
 ### 3.1 Admin
 
-Admin has full system control.
+Admin has full system control and is the only role permitted to:
 
-For M1, Admin can:
-
--   Sign in and use the internal application.
--   Create Staff accounts.
--   Access the User Management area.
--   Perform the administrative actions permitted by the broader
-    role-permission matrix.
-
-Admin-only user creation must be checked on the server. A Staff or
-Customer must not be able to create a Staff account by calling a URL or
-submitting a crafted request directly.
-
-The requirements identify Admin as a role but do not define the initial
-Admin bootstrap procedure. That setup mechanism must be decided
-separately and must not be replaced with public Admin registration.
+- Open the product catalog management area.
+- List and view products, including archived products.
+- Create products.
+- Edit product details, tax association, and variants.
+- Archive products.
+- Review variant price adjustments and adjusted-price previews.
 
 ### 3.2 Internal Staff
 
-Staff can:
+Staff can handle day-to-day customer, quotation, subscription, invoice, and payment operations. Staff must not manage products or variants.
 
--   Sign in and use the internal application.
--   Perform the operations allowed by the role-permission matrix.
+For M2, Staff:
 
-Staff cannot:
-
--   Create Staff accounts.
--   Manage users.
--   Manage products, variants, plans, taxes, payment terms, or
-    discounts.
--   Create or manage quotation templates (Staff may use existing
-    templates).
-
-The requirements describe Staff as a limited internal role. Any
-permission not explicitly granted by the role-permission matrix is
-denied by default.
+- Must not see product create, edit, or archive controls.
+- Must not access catalog-management URLs or endpoints.
+- May encounter product choices in later workflows only as permitted by the relevant module. M2 does not grant Staff catalog write access.
 
 ### 3.3 Customer
 
-Customer can:
+Customers use the self-service portal for their own subscriptions and invoices. They do not manage the product catalog.
 
--   Sign up publicly.
--   Sign in and reset their password.
--   Access the customer portal.
--   View their own subscriptions, quotations, invoices, and payment
-    information.
--   Perform subscription actions only where the subscription's plan
-    permits them.
+For M2, Customers:
 
-Customer cannot:
+- Must not access the catalog-management area.
+- Must not create, edit, archive, or configure products or variants.
+- Must not use catalog endpoints to inspect or modify internal catalog configuration unless a later customer-facing requirement explicitly permits a limited read view.
 
--   Create Staff accounts.
--   Access the internal dashboard or reports.
--   Run billing or generate invoices.
--   Confirm, cancel, or send invoices.
--   Record payments.
--   Read or modify another customer's data.
+### 3.4 Authorization rules
 
-### 3.4 Role comparison
+- Enforce Admin-only authorization server-side on every catalog view and write operation.
+- Hiding a button or menu item is not sufficient authorization.
+- Default to deny when a role/capability is not explicitly granted.
+- A Staff or Customer request to a protected catalog endpoint must not modify data.
+- Use the project's central permission conventions where available; do not create a second, inconsistent role system inside `catalog`.
 
-  ------------------------------------------------------------------------------------------
-  Capability                            Admin               Staff             Customer
-  ------------------------------ ------------------- ------------------- -------------------
-  Public customer signup           Not applicable      Not applicable            Yes
+---
 
-  Sign in                                Yes                 Yes                 Yes
+## 4. Product data model
 
-  Request password reset                 Yes                 Yes                 Yes
+The following describes the logical fields required by the source documents. Exact Django field names can follow existing project conventions, provided the persisted behavior remains equivalent.
 
-  Create Staff accounts                  Yes                 No                  No
+### 4.1 Product
 
-  Manage users                   Yes, within defined         No                  No
-                                        scope                            
+| Attribute | Required | Description / rule |
+|---|---:|---|
+| `id` | Yes | Database identifier. |
+| `name` | Yes | Product's display name. Reject a blank value. |
+| `type` | Yes | Product type. The exact allowed values are not enumerated in the source requirements and must be confirmed or taken from an existing project decision. |
+| `sales_price` | Yes | Base selling price before tax and before variant adjustments. Use fixed-precision decimal storage. |
+| `cost_price` | Yes | Product cost price. Use fixed-precision decimal storage. |
+| `notes` | No | Optional descriptive/internal notes. |
+| `tax` | Yes | Foreign-key/reference to one valid Tax record managed by M9. |
+| `is_archived` / status | Yes | Distinguishes active from archived products. The exact field representation may follow project conventions. |
+| `created_at` | Recommended | Creation timestamp, if consistent with the shared model conventions. |
+| `updated_at` | Recommended | Last-update timestamp, if consistent with the shared model conventions. |
 
-  View internal dashboard and            Yes                 Yes                 No
-  reports                                                                
+**Important:** timestamps and the precise status-field implementation are implementation conventions, not additional functional requirements explicitly stated in FR-2.1. The UI does require an active/archived status.
 
-  Manage subscriptions                   Yes                 Yes          Own records only,
-                                                                          permitted portal
-                                                                               actions
+### 4.2 Product type
 
-  View own                          As authorized       As authorized            Yes
-  subscription/invoice/payment                                           
-  data                                                                   
+The requirements require a `type` field but do not provide its allowed values or define type-specific behavior.
 
-  Access another customer's        Internal access     Internal access           No
-  records                           according to        according to     
-                                     permissions         permissions     
-  ------------------------------------------------------------------------------------------
+Implementation must therefore:
 
-The matrix above summarizes the M1 boundary and selected downstream
-permissions. The complete permission matrix in `REQUIREMENTS.md` Section
-4 remains authoritative for non-authentication capabilities.
+- Reuse an already documented project-level set of product types if one exists.
+- Otherwise record the allowed values as an open decision before enforcing a final enumeration.
+- Avoid inventing behavior such as physical/digital inventory handling or service fulfillment based only on the existence of a type field.
 
-------------------------------------------------------------------------
+### 4.3 ProductVariant
 
-## 4. Functional behavior
+A product may have variants. Each variant value has a price adjustment.
 
-### 4.1 Customer registration
+| Attribute | Required | Description / rule |
+|---|---:|---|
+| `id` | Yes | Database identifier. |
+| `product` | Yes | Parent Product. A variant value belongs to a product. |
+| `dimension` / attribute name | Required for a dimension-based editor | Example: `Brand`. The source UI describes variant dimensions and values. |
+| `value` | Yes | Example: `Odoo`. |
+| `price_adjustment` | Yes | Fixed-precision decimal adjustment applied to the base sales price when the value is selected. |
 
-**Entry point:** Customer sign-up link on the sign-in screen.
+The requirements explicitly provide the example that choosing brand `Odoo` adds `560` to the product price. Therefore, for a base price of `2,000`, the illustrative adjusted price is `2,560` before tax, assuming the example's adjustment is additive.
 
-**Fields:**
+The source does not define whether a variant adjustment can be negative, whether values must be unique within a dimension, or how multiple dimensions combine. These are open decisions, not silently assumed rules.
 
-  ------------------------------------------------------------------------
-  Field                                     Required Rules
-  --------------------- ---------------------------- ---------------------
-  Email                                          Yes Valid email address;
-                                                     unique without regard
-                                                     to letter casing.
+### 4.4 Tax relationship
 
-  Password                                       Yes Must satisfy the M1
-                                                     password policy.
+- Each Product must reference exactly one Tax record.
+- The Tax entity is managed by M9, not by M2.
+- The product form must allow the Admin to select an existing tax.
+- A product cannot be saved without a valid tax association, unless the product requirements are formally changed.
+- Tax calculation is not performed by catalog CRUD itself. Later subscription and invoice workflows use the product's tax.
+- The source rule says tax comes only from the product's tax; M2 must not introduce region-based or customer-specific tax selection.
 
-  Confirm password                       Recommended Must match the
-                                                     password. This field
-                                                     is a UI/UX
-                                                     recommendation, not a
-                                                     separate functional
-                                                     requirement.
-  ------------------------------------------------------------------------
+### 4.5 Money representation
 
-**Registration behavior:**
+- Store `sales_price`, `cost_price`, and `price_adjustment` using Django `DecimalField` or the project's equivalent fixed-precision decimal type.
+- Follow the coding standard's example precision (`max_digits=12`, `decimal_places=2`) unless the project already defines a shared money convention.
+- Never use Python `float` or JavaScript floating-point values as the authoritative persisted amount.
+- Parse and validate submitted values on the server.
+- Use the project's single money-rounding helper where calculations require rounding. The global rounding rule is an open item in the requirements (Open Item J); do not invent a separate catalog-only rule.
+- Display amounts consistently with the system's configured single currency. The currency itself is not named in the source requirements.
 
-1.  The customer opens the sign-up page.
-2.  The customer enters an email address and password.
-3.  The server validates required fields and email format.
-4.  The server validates the password policy.
-5.  The server checks email uniqueness, while the database constraint
-    remains the final authority.
-6.  The server creates the account with the **Customer** role.
-7.  The password is stored using Django's password-hashing mechanism.
-8.  The user receives a clear success or validation result.
+---
 
-**Mandatory security rules:**
+## 5. Product lifecycle and behavior
 
--   Public signup must always create a Customer account.
--   Do not render a role selector.
--   Ignore or reject any client-supplied `role`, `is_staff`,
-    `is_superuser`, permission, or equivalent privilege-escalation
-    field. Never use these values to set account privileges.
--   Do not permit public signup to create Admin or Staff users.
--   Enforce email uniqueness in PostgreSQL, not only in the form.
--   Keep CSRF protection enabled for browser form submissions.
-
-**Duplicate email behavior:**
-
--   The registration must be rejected if an account already exists for
-    the same email under a different casing.
--   The UI should explain that the email cannot be used for another
-    account without disclosing another user's private information.
--   The database uniqueness constraint must handle concurrent
-    registration attempts safely.
+### 5.1 Create product
 
-### 4.2 Sign in
+An Admin can create a product by providing:
 
-**Fields:**
+1. Name.
+2. Type.
+3. Sales price.
+4. Cost price.
+5. Optional notes.
+6. Associated tax.
+7. Optional variant dimensions/values and their price adjustments.
 
--   Email
--   Password
+On successful creation:
 
-**Actions:**
+- Persist the product and its variant data.
+- Mark the product active by default, unless the existing project has an explicitly documented alternative.
+- Make the active product available to later subscription-line selection.
+- Show a visible success result and navigate to the product detail page or back to the product list.
 
--   Sign in
--   Forgot password
--   Customer sign-up
+If validation fails:
 
-**Behavior:**
+- Do not create a partial product.
+- Keep the submitted form values where practical.
+- Display field-level validation messages.
+- Do not expose database errors or stack traces.
 
-1.  The user submits email and password.
-2.  The server authenticates using the case-insensitive email identity.
-3.  On success, the application establishes the configured authenticated
-    session.
-4.  The application routes the user to the correct experience based on
-    the account role.
-5.  On failure, the UI displays a generic authentication error.
+### 5.2 View products
 
-The error must not reveal whether the email is registered. Avoid
-separate public messages such as "email not found" and "password
-incorrect".
+Admin can view a paginated product list and open a product detail page.
 
-**Role-based destination:**
+The list must distinguish active and archived records and show the catalog fields specified by the UI/UX source (Section 6 below).
 
--   Admin → internal application.
--   Staff → internal application.
--   Customer → customer portal.
+### 5.3 Edit product
 
-The exact post-login URL and behavior for inactive or otherwise
-unavailable accounts are implementation details that are not specified
-in the source requirements.
+Admin can update product information, tax association, and variants.
 
-### 4.3 Password policy
+- Validate all submitted values on the server.
+- Do not trust client-submitted prices, tax rates, totals, or calculated adjusted prices.
+- Recalculate the adjusted-price preview from persisted base price and variant adjustment values.
+- Changes to the current product must not silently rewrite historical subscription or invoice line values. The UI/UX source explicitly requires existing history to remain understandable and not be silently rewritten when products are archived; the same historical-snapshot principle should be applied when downstream records are created.
+- The precise policy for editing a product already used by subscriptions is not fully specified and is listed as an open decision.
 
-The password must satisfy every rule below:
+### 5.4 Archive product
 
-  Rule                Required condition
-  ------------------- ------------------------------------------------
-  Length              More than 8 characters (minimum 9 characters).
-  Uppercase           At least one uppercase letter.
-  Lowercase           At least one lowercase letter.
-  Special character   At least one special character.
+Admin can archive a product instead of permanently deleting it.
 
-The policy must be enforced on the server using a custom Django password
-validator, as required by `CODING_STANDARDS.md`.
+- Archived products remain visible to Admin in the catalog with an Archived status.
+- Archived products must not be offered for new subscription lines.
+- Existing subscription and invoice history must remain understandable.
+- Archiving must not delete historical subscription lines or invoices.
+- The source documents do not define unarchive/restore behavior or whether products referenced by drafts can be archived; these are open decisions.
 
-The sign-up and reset-password interfaces must display the actual
-policy. When validation fails, show which rule or rules were not met.
+### 5.5 Delete behavior
 
-Do not silently substitute a different policy. In particular, the source
-requirement says **more than 8**, not "8 or more".
+The M2 requirements specify archive, not permanent deletion. Do not add a permanent-delete workflow as a substitute for archive. Database deletion policy for referenced products should protect referential integrity and historical records; the exact `on_delete` strategy should be chosen consistently with the project data-retention design.
 
-### 4.4 Forgot password
+---
 
-**Entry point:** "Forgot password" on the sign-in page.
+## 6. User interface specification
 
-**Flow:**
+**Audience:** Admin only for catalog management.
 
-1.  The user opens the forgot-password page.
-2.  The user submits an email address.
-3.  The server processes the request without revealing whether the
-    account exists.
-4.  The UI displays a neutral confirmation, such as: "If an account
-    exists for that email, password-reset instructions will be sent."
-5.  If the account exists and is eligible for reset, the system sends a
-    reset email containing a reset link.
-6.  The link uses Django's password-reset token generator.
-7.  The token is single-use and time-limited.
-8.  The user follows the link and enters a new password and
-    confirmation.
-9.  The server validates the token and new password.
-10. On success, the password hash is updated and the token can no longer
-    be used.
+### 6.1 Navigation
 
-**Reset-link requirements:**
+- Provide a Product Catalog entry in the internal Admin navigation.
+- Do not expose catalog-management navigation to Staff or Customers.
+- Direct URL access must still be protected server-side.
 
--   A valid token can be used only once.
--   A token expires after the configured validity period.
--   An expired or already-used token must not permit a password change.
--   The UI must explain that the link is no longer valid and provide a
-    route to request another reset link.
--   Reset responses must not reveal whether an email exists.
--   Never log the reset token or full reset URL.
+### 6.2 Product list
 
-**Unspecified detail:** The exact token validity duration is not
-provided in the requirements. Use the configured Django/application
-setting and record the chosen duration as an implementation decision; do
-not present an invented duration as a product requirement.
+The UI/UX source specifies these columns:
 
-### 4.5 Password reset page
+| Column | Description |
+|---|---|
+| Product name | Product's display name. |
+| Type | Product type. |
+| Sales price | Base sales price. |
+| Cost price | Cost price. |
+| Tax | Associated tax name/rate, as available from M9. |
+| Variant count | Number of configured variant values or the project's agreed count convention. |
+| Status | Active or Archived. |
 
-**Fields:**
+Available actions:
 
--   New password
--   Confirm new password
+- Create product.
+- Edit product.
+- Archive product.
+- Open product details.
 
-**Behavior:**
+List behavior:
 
--   Validate that both fields are present.
--   Validate that both values match.
--   Enforce the complete M1 password policy on the server.
--   Validate that the reset token is valid, unused, and unexpired.
--   Preserve safe form feedback and explain validation errors.
--   Do not reveal internal exceptions, token contents, or account
-    details.
+- Clearly distinguish active and archived products; do not rely on color alone.
+- Archived products should remain discoverable to Admin.
+- Provide a useful empty state when no products exist.
+- Provide loading and error feedback where applicable.
+- Paginate the list; avoid loading an unbounded catalog.
+- Avoid N+1 queries by selecting the tax relation efficiently and prefetching variants where needed.
 
-The UI should offer a new reset request when the link is expired or
-already used.
+### 6.3 Product create/edit form
 
-### 4.6 Admin creates Staff accounts
+Fields required by the UI/UX specification:
 
-**Access:** Admin only.
+| Field | UI behavior |
+|---|---|
+| Name | Required text input. |
+| Type | Required selector/input using the confirmed type values. |
+| Sales price | Required decimal amount input. Clearly label it as the base sales price. |
+| Cost price | Required decimal amount input. |
+| Notes | Optional text area. |
+| Associated tax | Required selector populated from available Tax records. |
+| Variants | Variant editor described below. |
 
-The Admin is the only role allowed to create Staff accounts.
+Form behavior:
 
-**Expected behavior:**
+- Show validation messages beside the relevant fields.
+- Do not accept a client-calculated amount as authoritative.
+- Show a clear save/cancel action.
+- Warn before leaving if unsaved-change protection is part of the shared application UX pattern; this is a UX enhancement rather than a separately stated M2 functional requirement.
+- On a recoverable error, preserve entered values where practical.
 
-1.  Admin opens User Management.
-2.  Admin chooses the create-Staff action.
-3.  Admin supplies the account information required by the implemented
-    account form.
-4.  The server verifies that the requester is an authenticated Admin.
-5.  The server validates the submitted data and email uniqueness.
-6.  The server creates the account with the Staff role.
-7.  The UI displays the result.
+### 6.4 Variant editor
 
-The requirements establish the authorization rule but do not specify:
+The UI/UX source requires the Admin to add variant dimensions/values and their price adjustments.
 
--   The exact Staff creation fields.
--   Whether Staff receive an invitation or an administrator-set
-    temporary password.
--   Whether Staff must change a password on first sign-in.
--   Whether Staff activation requires email verification.
--   Whether Admin can edit, deactivate, reactivate, or delete existing
-    Staff accounts.
+At minimum, the editor must support:
 
-These are open implementation/product decisions. Do not silently add
-them to the feature.
+- Adding a variant dimension (example: `Brand`).
+- Adding a value under that dimension (example: `Odoo`).
+- Entering a price adjustment for the value (example: `+560`).
+- Reviewing the base price and adjusted-price preview.
 
-### 4.7 Sign out
+Example preview:
 
-The UI/UX specification includes a sign-out action in the global
-application elements and customer portal.
+| Item | Amount |
+|---|---:|
+| Base sales price | 2,000.00 |
+| Selected variant adjustment (Odoo) | +560.00 |
+| Adjusted price before tax | 2,560.00 |
 
-The sign-out action must end the user's authenticated session using the
-application's configured Django authentication/session mechanism. The
-exact session-expiry and revocation policy is not defined by the
-requirements.
+The example amounts illustrate the source requirement; they are not fixed product prices.
 
-------------------------------------------------------------------------
+Do not implement a sophisticated multi-dimension configurator until the rules for selecting one value per dimension, combining adjustments, and handling conflicting selections have been confirmed.
 
-## 5. Role-based access control (RBAC)
+### 6.5 Product detail view
 
-### 5.1 Enforcement principles
+The source UI requires an action to open product details but does not prescribe a full detail-page layout. A minimal detail view should therefore show the stored product information without introducing new business behavior:
 
--   Authorization is enforced on the server for every protected view and
-    service operation.
--   Hiding a button or navigation item is a usability measure only; it
-    is not an authorization control.
--   Use a central permission layer in `apps/accounts/permissions.py` (or
-    the project's equivalent structure).
--   Map permissions to the role-permission matrix in `REQUIREMENTS.md`
-    Section 4.
--   **Default deny:** if an action is not explicitly allowed, reject it.
--   Validate permissions on every request, including direct URL access
-    and crafted POST requests.
--   Do not trust a role or permission value supplied by the browser.
+- Name and type.
+- Base sales price and cost price.
+- Notes, when present.
+- Associated tax.
+- Active/archived status.
+- Configured variant dimensions/values and their adjustments.
+- Available Admin actions (edit and archive where applicable).
 
-### 5.2 Permission checks
+This is a presentation of existing M2 data, not a separate functional expansion.
 
-A protected operation should follow this sequence:
+### 6.6 Empty, success, and error states
 
-1.  Confirm that the request has an authenticated user.
-2.  Determine the user's persisted role.
-3.  Check whether that role is permitted to perform the requested
-    action.
-4.  For customer-owned data, resolve the authenticated user's associated
-    Customer record.
-5.  Scope the object lookup to that Customer.
-6.  Perform the operation only after authorization and ownership checks
-    succeed.
+| State | Expected behavior |
+|---|---|
+| No products | Explain that no products exist and offer Create product to Admin. |
+| No variants | Show that no variants are configured; do not treat this as an error. |
+| No tax records | Explain that a tax must be configured under M9 before a product can be saved. Do not silently create a tax. |
+| Invalid form | Show field-level errors and preserve valid entered values. |
+| Save success | Show confirmation and the resulting product. |
+| Archive confirmation | Explain that the product will no longer be available for new subscription lines; require confirmation. |
+| Archived product | Display Archived status and prevent selection for new subscription lines. |
+| Permission denied | Return the project's standard forbidden/not-found behavior without exposing internal data. |
+| Unexpected error | Show a generic error and log diagnostic context server-side; do not expose stack traces. |
 
-Views should remain thin and delegate business operations to services.
-Services that can be called from multiple entry points must also enforce
-the relevant authorization boundary; a view-only check is insufficient
-where the service is independently callable.
+---
 
-### 5.3 Customer data isolation
+## 7. Pricing and variant rules
 
-Customer isolation is mandatory for:
+### 7.1 Base price
 
--   Subscriptions.
--   Invoices.
--   Payments.
+`Product.sales_price` is the base selling price. The requirements do not state that variant adjustments modify the cost price. Therefore, M2 must not automatically apply a variant adjustment to `cost_price`.
 
-Customer-facing queries must filter by the Customer associated with the
-authenticated user.
+### 7.2 Variant adjustment
 
-**Safe lookup pattern (illustrative Django ORM):**
+For a selected variant value, the example indicates an additive adjustment:
 
-``` python
-get_object_or_404(
-    Invoice,
-    pk=invoice_id,
-    customer=request.user.customer,
-)
+`adjusted_price = base_sales_price + selected_variant_adjustment`
+
+Example:
+
+- Base sales price: 2,000.00
+- Brand: Odoo
+- Adjustment: +560.00
+- Adjusted price before tax: 2,560.00
+
+This formula is directly supported for the single-value example. Multiple dimensions, multiple selected values, negative adjustments, and compounding behavior are not defined.
+
+### 7.3 Tax treatment
+
+The current working assumption is tax-exclusive pricing: tax is added on top of the product price (BR-13 / Open Item B).
+
+M2 should:
+
+- Store the product's tax association.
+- Display tax context in the product list and detail/form views.
+- Avoid adding tax into `sales_price` itself.
+- Leave final tax calculation and invoice-line snapshots to the subscription/billing modules that consume the catalog.
+
+The tax-inclusive/exclusive decision is still identified as an open item in the requirements and should be confirmed before treating it as immutable policy.
+
+### 7.4 Server authority
+
+- The server calculates adjusted prices from the stored base price and selected variant adjustment.
+- The browser may display a preview, but the preview is not authoritative.
+- Never accept a client-submitted total or tax amount without recomputing it from trusted database records.
+- Use `Decimal` for all monetary calculations and tests.
+
+---
+
+## 8. Integration with other modules
+
+### 8.1 M3 — Plans
+
+M2 provides the product catalog. M3 manages plans and their pricing/billing-period rules. Do not merge plan fields into Product or treat a Product as a Plan.
+
+### 8.2 M4 — Quotation templates and subscriptions
+
+- Subscription lines reference products.
+- Products can be recurring items or add-ons.
+- Add-ons are modeled as subscription lines, not as a separate product lifecycle entity.
+- M2's responsibility is to make active products and their catalog data available to the subscription workflow.
+- M2 must not implement subscription lifecycle, quotation acceptance, proration, or subscription billing.
+
+### 8.3 M5 — Invoicing
+
+- Invoice lines are generated from subscription data.
+- Tax is taken from the tax attached to each product.
+- Confirmed invoice totals are stored at confirmation time and historical invoices must not be recomputed from current catalog prices.
+- M2 must not implement invoice generation or invoice status transitions.
+
+### 8.4 M6 — Discounts
+
+M2 does not manage discount rules or apply discounts. Discounts are handled by M6 and applied to invoices according to the requirements.
+
+### 8.5 M9 — Taxes and payment terms
+
+M9 manages Tax records (name and rate). M2 references one Tax per product and allows Admin to select it. M2 must not duplicate tax CRUD or invent tax rules.
+
+---
+
+## 9. Architecture and implementation guidance
+
+The project coding standards define a Django modular monolith backed by PostgreSQL. Follow the existing project layout rather than introducing a new architecture.
+
+### 9.1 Suggested catalog app responsibilities
+
+The coding standards identify `apps/catalog/` as the location for products, variants, taxes, and payment terms. For M2, keep the implementation focused on Product and ProductVariant; Tax administration remains M9.
+
+Expected app structure, adapted to the existing repository:
+
+```text
+apps/catalog/
+├── models.py          # Product and ProductVariant data/invariants
+├── services.py        # create, update, archive, variant operations
+├── selectors.py       # product list/detail query logic
+├── views.py           # thin request handlers
+├── forms.py           # server-side form validation
+├── permissions.py     # only if shared permission layer does not cover it
+├── urls.py
+├── admin.py
+├── tests/
+└── migrations/
 ```
 
-Do not retrieve an invoice by its primary key alone and then assume that
-the user is allowed to see it.
+Do not create duplicate files if the repository already has equivalent modules. Keep views thin; write operations belong in services; complex reads belong in selectors.
 
-Apply the same ownership-scoping principle to subscription and payment
-detail pages, list pages, downloads/prints, and any action endpoints.
+### 9.2 Model constraints and validation
 
-**IDOR protection:**
+Use Django model/form validation and PostgreSQL constraints where appropriate.
 
--   Changing an identifier in a URL must not expose another customer's
-    record.
--   A customer must not be able to submit another customer's object ID
-    to a form or service and operate on that record.
--   Do not disclose whether a foreign customer's record exists.
--   Return a safe not-found or access-denied response consistent with
-    the application's established behavior.
--   Validate ownership again on write operations; a previously rendered
-    page is not proof of current authorization.
+Expected protections include:
 
-The exact data model relationship between `User` and `Customer` must be
-confirmed in implementation. The requirements define both entities and
-state that Customer is linked to User, but do not prescribe the field
-name or cardinality beyond the account/customer relationship.
+- Required product name, type, sales price, cost price, and tax association.
+- Decimal fields for all monetary values.
+- Valid reference from Product to Tax.
+- Variant values associated with a valid parent Product.
+- Any uniqueness constraints for variant dimensions/values only after their intended scope is confirmed.
+- No direct client ability to set archived/active state through an untrusted field unless the endpoint is an authorized Admin action.
 
-------------------------------------------------------------------------
+Do not rely on form validation alone for invariants that must hold under concurrent requests; use database constraints where a clear invariant exists.
 
-## 6. User interface and navigation
+### 9.3 Services
 
-### 6.1 Authentication screens
+Write operations should be exposed through focused service functions, for example:
 
-The UI/UX specification defines the following screens and elements.
+- `create_product(...)`
+- `update_product(...)`
+- `archive_product(...)`
+- `replace_product_variants(...)` or smaller variant operations, depending on the actual UI workflow.
 
-#### Sign-in screen
+These are suggested names, not mandatory public APIs. Match existing naming conventions and avoid creating abstractions with no second concrete use.
 
--   Email field.
--   Password field.
--   Sign-in action.
--   Forgot-password link.
--   Customer sign-up link.
--   Required-field validation.
--   Generic authentication error.
--   Role-based routing after successful authentication.
+Wrap multi-record writes (such as saving a product and its variants together) in `transaction.atomic()` so the operation cannot leave a partially updated catalog record.
 
-#### Customer sign-up screen
+### 9.4 Selectors and query performance
 
--   Email field.
--   Password field.
--   Confirm-password field (recommended).
--   Visible password-policy guidance.
--   No role selector.
--   Field-level validation feedback.
+- Keep catalog list/detail query logic in selectors when it becomes non-trivial.
+- Use `select_related` for the Tax foreign key.
+- Use `prefetch_related` for variants when listing variant counts or displaying variant details.
+- Paginate product lists.
+- Add indexes only where supported by actual query patterns or measured performance needs; do not add speculative indexes.
 
-#### Forgot-password screen
+### 9.5 Auditability
 
--   Email field.
--   Submit action.
--   Neutral confirmation message regardless of whether the account
-    exists.
+NFR-5 requires relevant Admin changes to be auditable with actor and timestamp. Product creation, edits, and archive actions should integrate with the project's existing audit mechanism if present.
 
-#### Reset-password screen
+The source documents do not specify the exact audit event schema or whether every individual variant edit needs a separate event. Reuse the project's shared audit approach and record enough context to identify the actor, product, operation, and time.
 
--   New-password field.
--   Confirm-password field.
--   Visible password policy.
--   Clear expired/used-link explanation.
--   Link or action to request another reset.
+### 9.6 Dependencies and deployment
 
-### 6.2 Internal navigation
+- Prefer Django and the standard library.
+- Do not add a package solely to implement basic catalog CRUD or decimal arithmetic.
+- PostgreSQL is the source of truth.
+- Every model change requires a migration.
+- Do not use local files or in-memory globals as persistent catalog storage.
+- Keep the application compatible with the project's Vercel/serverless constraints.
 
-The internal application includes a User Management navigation item
-visible to Admin only.
+---
 
-Staff must not see User Management controls. Customers use a separate
-portal and must not see internal navigation.
+## 10. Validation rules
 
-### 6.3 Customer portal navigation
+The following rules are required or directly implied by the defined fields and security requirements. Any additional business constraints must be confirmed rather than invented.
 
-The customer portal navigation includes:
+| Field / operation | Validation |
+|---|---|
+| Name | Required; reject blank/whitespace-only input. |
+| Type | Required; validate against the confirmed set of types. |
+| Sales price | Required decimal; reject malformed values and values outside the agreed field precision. |
+| Cost price | Required decimal; reject malformed values and values outside the agreed field precision. |
+| Notes | Optional text; apply normal input handling and output escaping. |
+| Tax | Required reference to an existing valid Tax record. |
+| Variant dimension | Required when a dimension is created; allowed naming/uniqueness rules need confirmation. |
+| Variant value | Required for each configured value. |
+| Price adjustment | Decimal; validate precision and range according to the decision on negative adjustments. |
+| Archive | Admin-only action; require confirmation in the UI. |
+| New subscription-line selection | Exclude archived products. |
 
--   Overview
--   My subscriptions
--   My quotations
--   My invoices
--   Account / security
+**Not specified by the source:** whether sales price or cost price may be zero or negative; whether cost price must be less than/equal to sales price; maximum name/notes lengths beyond the chosen database limits; whether duplicate product names are allowed; whether tax can be changed after a product is used. These are listed as open decisions below.
 
-The Account / security area provides the account email, a password
-reset/change entry point subject to the authentication implementation,
-and sign out.
+---
 
-Editing other customer profile details is not specified.
+## 11. Security and data integrity
 
-### 6.4 Permission-aware interface
+- Admin-only catalog operations must be protected server-side.
+- Staff and Customer must not be able to call catalog write endpoints directly.
+- Validate all input using Django forms/serializers and service-level rules as appropriate.
+- Use ORM queries or parameterized SQL; never interpolate raw user input into SQL.
+- Keep Django template auto-escaping enabled. Do not mark user notes as safe HTML.
+- Keep CSRF protection enabled for browser-based write actions.
+- Do not trust client-supplied price, tax rate, adjusted price, or status.
+- Use atomic transactions for multi-row product/variant updates.
+- Preserve referenced products and historical downstream records; archive instead of deleting.
+- Record relevant Admin changes through the shared audit mechanism.
+- Do not expose stack traces, SQL errors, or internal identifiers unnecessarily in user-facing error messages.
 
--   Hide or disable actions that the current role cannot perform.
--   Explain why an action is unavailable where appropriate.
--   Do not rely on interface visibility for security.
--   If a user directly requests an unauthorized URL/action, enforce the
-    server-side permission check and show an access-denied result.
--   Preserve entered form data where possible after validation or
-    recoverable network errors.
+---
 
-------------------------------------------------------------------------
+## 12. Acceptance criteria
 
-## 7. Data and persistence requirements
+M2 is acceptable when all applicable criteria below pass.
 
-### 7.1 Core entities
+### 12.1 Product CRUD
 
-The requirements identify:
-
--   `User` --- login identity with a role (Admin, Staff, Customer).
--   `Customer` --- customer profile linked to a user.
-
-The exact model fields and relationship implementation are not fully
-specified.
-
-### 7.2 User identity
-
--   Email is the login identity.
--   Email uniqueness is case-insensitive.
--   Enforce uniqueness at the database level using a case-insensitive
-    unique index/constraint appropriate to the chosen PostgreSQL/Django
-    model design.
--   Form validation should provide a useful error, but database
-    enforcement is authoritative.
--   Ensure the chosen email normalization strategy is consistent across
-    registration, login, Admin-created Staff accounts, and password
-    reset.
-
-### 7.3 Password storage
-
--   Use Django's built-in password hashing APIs and configured password
-    hashers (PBKDF2/Argon2).
--   Store only the encoded password hash.
--   Never store a raw password in a model field, log, audit entry,
-    email, or analytics event.
--   Never return a password or password hash to the client.
--   Never write passwords into fixtures or seed data as plaintext.
-
-### 7.4 Database integrity
-
-At minimum, persistence must enforce:
-
--   One account per case-insensitive email.
--   A valid role representation for the three supported roles.
--   A valid relationship between a Customer account and its Customer
-    profile, according to the chosen model.
-
-Use migrations for model and constraint changes. Do not edit migrations
-that have already been applied.
-
-------------------------------------------------------------------------
-
-## 8. Security requirements
-
-### 8.1 Authentication and password security
-
--   Use Django's authentication and password-hashing facilities.
--   Enforce the custom M1 password validator server-side.
--   Do not reveal whether an email exists through login or reset
-    responses.
--   Use single-use, expiring Django reset tokens.
--   Never log credentials, password hashes, reset tokens, or reset
-    links.
-
-### 8.2 Authorization
-
--   Server-side RBAC on every protected view and service.
--   Central permission layer.
--   Default deny.
--   Only Admin can create Staff.
--   Ignore public signup role input.
--   Enforce customer ownership for every customer-facing record lookup
-    and operation.
-
-### 8.3 Web protections
-
--   Keep CSRF protection enabled.
--   Validate request data with Django forms or serializers.
--   Use ORM/parameterized queries; do not build SQL through string
-    formatting.
--   Keep Django template auto-escaping enabled.
--   Do not use `safe` or `mark_safe` on user-provided values.
--   Do not expose stack traces, SQL errors, or internal exception
-    details to users.
-
-### 8.4 Abuse protection
-
-Apply throttling or lockout protection to:
-
--   Login.
--   Customer signup.
--   Password-reset requests.
-
-The requirements do not specify thresholds, cooldown durations, or
-whether throttling is per IP, account, or both. Those values must be
-selected and documented as implementation configuration rather than
-represented as fixed product requirements.
-
-### 8.5 Production configuration
-
-Follow the project's security settings requirements:
-
--   Keep secrets out of source control.
--   Use environment variables for secrets and deployment configuration.
--   `DEBUG = False` in production.
--   Set `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` explicitly.
--   Configure `SECURE_SSL_REDIRECT`.
--   Configure `SESSION_COOKIE_SECURE` and `CSRF_COOKIE_SECURE`.
--   Configure `SECURE_HSTS_SECONDS` and `SECURE_CONTENT_TYPE_NOSNIFF`.
-
-------------------------------------------------------------------------
-
-## 9. Application architecture and coding conventions
-
-The project stack is Django, PostgreSQL, and Vercel. M1 belongs in
-`apps/accounts/`.
-
-Recommended responsibility boundaries, following `CODING_STANDARDS.md`:
-
-  -----------------------------------------------------------------------
-  Location                            Responsibility
-  ----------------------------------- -----------------------------------
-  `apps/accounts/models.py`           User/Customer data, role
-                                      representation, constraints, and
-                                      simple model properties.
-
-  `apps/accounts/services.py`         Account creation and other
-                                      write/business operations.
-
-  `apps/accounts/selectors.py`        Complex read/query logic, if
-                                      needed.
-
-  `apps/accounts/views.py`            Parse request, invoke form/service,
-                                      return response; keep views thin.
-
-  `apps/accounts/forms.py`            Registration, login, password
-                                      reset, and Staff creation input
-                                      validation.
-
-  `apps/accounts/permissions.py`      Central role and ownership
-                                      authorization rules.
-
-  `apps/accounts/urls.py`             Authentication and
-                                      account-management routes.
-
-  `apps/accounts/admin.py`            Django admin integration, subject
-                                      to the project's Admin model
-                                      design.
-
-  `apps/accounts/tests/`              Authentication, password, RBAC, and
-                                      isolation tests.
-
-  `apps/accounts/migrations/`         Schema and constraint migrations.
-  -----------------------------------------------------------------------
-
-This is a responsibility map, not a requirement to create every file
-regardless of need. Follow the existing project structure and avoid
-unnecessary files.
-
-### 9.1 Layering rules
-
--   Views are thin.
--   Business logic belongs in services.
--   Complex reads belong in selectors.
--   Models hold fields, constraints, and simple properties.
--   No external email calls from model `save()` methods.
--   Avoid circular imports.
--   Use Django built-ins before introducing dependencies.
--   Do not introduce a SPA framework, message queue, microservice, or
-    event bus for M1.
-
-### 9.2 Email boundary
-
-Password-reset email delivery is required. Keep email sending behind the
-project's email boundary so failures can be handled and the provider can
-be changed without embedding provider logic in models or views.
-
-Email delivery failure behavior must not expose secrets. The coding
-standards state that email failures should be logged and retried without
-rolling back unrelated business transactions. The precise retry
-implementation and delivery provider are not specified in M1.
-
-### 9.3 Deployment constraints
-
--   PostgreSQL is the single source of truth.
--   Do not use in-memory globals or local files for persistent
-    account/session state.
--   Use database-backed sessions or signed cookies; do not rely on
-    local-memory or file-backed sessions.
--   Vercel functions are stateless and may run in parallel or be
-    recycled.
--   Do not write persistent data to the local filesystem.
--   Run migrations as an explicit deployment step, not during a request.
-
-------------------------------------------------------------------------
-
-## 10. Error and feedback behavior
-
-  -----------------------------------------------------------------------
-  Situation                           Expected behavior
-  ----------------------------------- -----------------------------------
-  Required field missing              Show field-level validation.
-
-  Invalid email format                Show an email validation message.
-
-  Email already registered            Reject signup and explain that the
-                                      email cannot be used again.
-
-  Email differs only by casing from   Treat it as a duplicate.
-  an existing account                 
-
-  Password too short                  Explain that it must contain more
-                                      than 8 characters.
-
-  Missing uppercase character         Identify the uppercase requirement.
-
-  Missing lowercase character         Identify the lowercase requirement.
-
-  Missing special character           Identify the special-character
-                                      requirement.
-
-  Password confirmation mismatch      Show a confirmation error.
-
-  Invalid login credentials           Show a generic authentication
-                                      error; do not identify which
-                                      credential was wrong.
-
-  Password-reset email submitted      Show neutral confirmation whether
-                                      or not the account exists.
-
-  Reset token expired                 Explain that the link expired and
-                                      offer a new reset request.
-
-  Reset token already used            Explain that the link is no longer
-                                      valid and offer a new reset
-                                      request.
-
-  User lacks role permission          Deny the operation; do not expose
-                                      the protected action as available.
-
-  Customer requests another           Deny access without disclosing
-  customer's record                   whether the record exists.
-
-  Login/signup/reset throttled        Show a safe retry-later message
-                                      without exposing internal
-                                      rate-limit details.
-
-  Network/server failure              Show a generic safe error and
-                                      preserve form input where possible.
-  -----------------------------------------------------------------------
-
-All system errors must be logged with useful operational context but
-without passwords, reset tokens, reset links, or unnecessary personal
-data.
-
-------------------------------------------------------------------------
-
-## 11. Acceptance criteria
-
-M1 is functionally acceptable only when all applicable criteria below
-are demonstrated.
-
-### 11.1 Registration
-
--   [ ] A visitor can register with a valid email and a compliant
-    password.
--   [ ] The created account receives the Customer role.
--   [ ] The public form does not offer a role selector.
--   [ ] A crafted public signup request containing `role=Admin` or
-    `role=Staff` cannot create a privileged account.
--   [ ] An email already used by an account is rejected.
--   [ ] An email differing only by case is also rejected.
--   [ ] Database-level uniqueness protects against concurrent duplicate
-    registration.
--   [ ] Password confirmation, if present, must match.
-
-### 11.2 Password policy and storage
-
--   [ ] Passwords of 8 characters or fewer are rejected.
--   [ ] Passwords without an uppercase character are rejected.
--   [ ] Passwords without a lowercase character are rejected.
--   [ ] Passwords without a special character are rejected.
--   [ ] A password meeting all four rules is accepted.
--   [ ] The policy is enforced server-side, not only in browser
-    JavaScript.
--   [ ] Stored credentials are salted password hashes, not plaintext.
--   [ ] Passwords and password hashes do not appear in logs or
-    responses.
-
-### 11.3 Sign in and sign out
-
--   [ ] A valid Admin can sign in and reach the internal application.
--   [ ] A valid Staff user can sign in and reach the internal
-    application.
--   [ ] A valid Customer can sign in and reach the customer portal.
--   [ ] Email identity is case-insensitive.
--   [ ] Invalid credentials produce a generic error.
--   [ ] Sign out ends the authenticated session.
-
-### 11.4 Password reset
-
--   [ ] A user can submit an email address to request a reset.
--   [ ] The response does not disclose whether the account exists.
--   [ ] A registered account receives a reset link through the
-    configured email path.
--   [ ] A valid reset link allows the user to set a compliant password.
--   [ ] A reset token cannot be reused.
--   [ ] An expired token cannot be used.
--   [ ] Invalid/expired/used links show a safe explanation and a
-    new-request path.
--   [ ] Reset tokens and links are not logged.
-
-### 11.5 Staff account management
-
--   [ ] An Admin can create a Staff account.
--   [ ] A Staff user cannot create a Staff account through the UI or a
-    direct request.
--   [ ] A Customer cannot create a Staff account through the UI or a
-    direct request.
--   [ ] Public signup cannot create Staff or Admin accounts.
--   [ ] Duplicate email rules apply to Admin-created accounts as well.
-
-### 11.6 RBAC and customer isolation
-
--   [ ] Each role is allowed only the capabilities granted by
-    `REQUIREMENTS.md` Section 4.
--   [ ] Every unlisted capability is denied by default.
--   [ ] Authorization is checked server-side on every protected
-    endpoint.
--   [ ] Hiding a control is not the only permission enforcement.
--   [ ] A Customer can list and view only their own subscriptions.
--   [ ] A Customer can list and view only their own invoices.
--   [ ] A Customer can view only their own payment information.
--   [ ] Changing a URL/object identifier cannot expose another
-    customer's data.
--   [ ] Write/action endpoints also enforce customer ownership.
--   [ ] Unauthorized requests do not reveal whether another customer's
-    record exists.
-
-------------------------------------------------------------------------
-
-## 12. Test plan
-
-Use `pytest` and `pytest-django`, with `factory-boy` where useful, as
-specified by the coding standards. Tests must not call real external
-services.
-
-### 12.1 Registration and email uniqueness
-
-Test cases:
-
-1.  Successful customer registration.
-2.  Missing email.
-3.  Invalid email format.
-4.  Missing password.
-5.  Duplicate email with identical casing.
-6.  Duplicate email with different casing.
-7.  Concurrent duplicate registration attempts; the database constraint
-    must prevent two accounts.
-8.  Signup request includes a forged Admin role.
-9.  Signup request includes a forged Staff role.
-10. Signup request includes privilege-related fields.
-
-### 12.2 Password validation and hashing
-
-Test each policy rule independently, including boundary length:
-
--   8 characters → rejected.
--   9 characters with all required character classes → accepted.
--   No uppercase → rejected.
--   No lowercase → rejected.
--   No special character → rejected.
-
-Also verify:
-
--   Stored password is not equal to the raw password.
--   Django password verification accepts the correct password.
--   Django password verification rejects an incorrect password.
--   No password value is written to logs.
-
-### 12.3 Authentication
+- [ ] Admin can open the product catalog.
+- [ ] Admin can create a product with name, type, sales price, cost price, notes, and tax.
+- [ ] Required fields are validated on the server.
+- [ ] Admin can view product details.
+- [ ] Admin can edit product fields.
+- [ ] Admin can archive a product.
+- [ ] The list displays active and archived status.
+- [ ] Archived products remain visible to Admin.
+- [ ] No permanent-delete workflow is substituted for archive.
+
+### 12.2 Variants
+
+- [ ] Admin can configure a variant dimension and its values.
+- [ ] Each variant value can store a price adjustment.
+- [ ] The example variant `Odoo` can be represented with a `+560` adjustment.
+- [ ] The UI displays the base price and adjusted-price preview.
+- [ ] The server calculates the adjusted price from trusted product and variant data.
+- [ ] Invalid variant data is rejected without leaving partial records.
+- [ ] The implementation does not silently invent multi-dimension combination rules.
+
+### 12.3 Tax association
+
+- [ ] Every saved product references one existing Tax record.
+- [ ] The product form lets Admin select a tax.
+- [ ] M2 does not duplicate M9 tax administration.
+- [ ] Tax is not silently baked into the product's base sales price under the current tax-exclusive working assumption.
+
+### 12.4 Subscription-line compatibility
+
+- [ ] Active products can be selected by the later subscription-line workflow.
+- [ ] Products can represent recurring items or add-ons on subscription lines.
+- [ ] Archived products are excluded from new subscription-line selection.
+- [ ] Existing subscription/invoice history remains understandable after product edits or archive.
+
+### 12.5 Permissions and security
+
+- [ ] Admin can perform all catalog operations.
+- [ ] Staff cannot create, edit, archive, or manage variants.
+- [ ] Customer cannot create, edit, archive, or manage variants.
+- [ ] Direct requests to protected endpoints are denied for unauthorized roles.
+- [ ] Prices and tax data are validated/recalculated server-side.
+- [ ] CSRF and output escaping remain enabled.
+
+### 12.6 Quality
+
+- [ ] Product list is paginated.
+- [ ] Catalog queries avoid obvious N+1 access patterns.
+- [ ] Multi-record writes are atomic.
+- [ ] Model changes have migrations.
+- [ ] Tests cover success, validation failure, permission denial, and archive behavior.
+- [ ] No unused imports, dead code, debug statements, or unnecessary dependencies remain.
+
+---
+
+## 13. Test plan
+
+Use `pytest` and `pytest-django`, with `factory-boy` where useful, as specified by `CODING_STANDARDS.md`. Tests must not call real external services. Monetary assertions must use `Decimal`, never float.
+
+### 13.1 Product creation
+
+1. Admin creates a valid product.
+2. Missing name is rejected.
+3. Blank name is rejected.
+4. Missing type is rejected.
+5. Missing sales price is rejected.
+6. Malformed sales price is rejected.
+7. Missing cost price is rejected.
+8. Malformed cost price is rejected.
+9. Missing tax is rejected.
+10. Non-existent tax reference is rejected.
+11. Optional notes may be empty.
+12. A submitted forged role or actor value does not grant catalog access.
+13. Product and variants are not partially saved if a multi-record creation fails.
+
+### 13.2 Product editing
 
 Test:
 
--   Successful Admin login.
--   Successful Staff login.
--   Successful Customer login.
--   Case-insensitive email login.
--   Incorrect password.
--   Unknown email.
--   Generic response equivalence for unknown email and incorrect
-    password.
--   Session termination on logout.
--   Role-based destination behavior.
+- Admin can edit each editable field.
+- Invalid values are rejected.
+- Tax association can be changed to another valid tax, subject to the unresolved policy for products already in use.
+- Product updates do not rewrite historical invoice totals or existing immutable invoice-line snapshots.
+- Concurrent updates do not leave inconsistent variant relations.
 
-### 12.4 Password reset
+### 13.3 Product archive
 
 Test:
 
--   Reset request for an existing account.
--   Reset request for an unknown email.
--   Same public response for both cases.
--   Reset email generated through a test email backend.
--   Valid token accepted.
--   Token rejected after use.
--   Expired token rejected.
--   Password-policy failure on reset.
--   Password confirmation mismatch.
--   Reset link/token absent from application logs.
+- Admin can archive an active product.
+- Archived status appears in the Admin list/detail view.
+- Archived product is excluded from new subscription-line selection.
+- Existing subscription lines and invoice history remain accessible and understandable.
+- Staff and Customer cannot archive products.
+- Repeated archive requests behave safely and do not corrupt data.
 
-### 12.5 Staff management and RBAC
+### 13.4 Variants and price adjustments
 
-Test each role against both allowed and denied operations:
+Test:
 
--   Admin creates Staff.
--   Staff cannot create Staff.
--   Customer cannot create Staff.
--   Customer cannot access User Management.
--   Staff cannot access User Management.
--   Admin-only catalog/configuration permissions remain protected.
--   Staff permissions match the matrix.
--   Customer cannot access internal dashboard/report routes.
--   Unlisted capabilities are denied.
+- Product can have no variants.
+- Admin can add a dimension and value.
+- A value stores a decimal adjustment.
+- Base price `2000.00` plus adjustment `560.00` previews as `2560.00` before tax.
+- The server-side calculation matches the preview.
+- Malformed adjustment is rejected.
+- Precision is enforced consistently.
+- Negative adjustments follow the confirmed policy; do not encode an unapproved assumption.
+- Multiple dimensions are tested only after their combination rules are decided.
 
-### 12.6 Customer data isolation
+### 13.5 Permissions
 
-Create at least two customers, each with separate subscriptions,
-invoices, and payments. Verify:
+For each operation (list, detail, create, update, archive, variant management), test:
 
--   Customer A sees only Customer A's records.
--   Customer B sees only Customer B's records.
--   Customer A cannot open Customer B's record by changing a URL ID.
--   Customer A cannot submit Customer B's ID to a write/action endpoint.
--   List, detail, print/download, and action queries all enforce
-    ownership.
--   Unauthorized responses do not disclose whether the foreign record
-    exists.
+- Admin allowed.
+- Staff denied.
+- Customer denied.
+- Anonymous user handled by the project's standard authentication behavior.
+- Direct URL/API access is denied even if UI controls are hidden.
 
-### 12.7 Required checks
+### 13.6 Query and integrity tests
 
-Before accepting an implementation:
+- Product list includes associated tax information without an N+1 query pattern.
+- Variant count is correct.
+- Archived and active filters/statuses are correct.
+- Database constraints protect confirmed invariants.
+- Money values are `Decimal` and never converted to float for persistence or assertions.
 
--   `ruff check .`
--   `ruff format .` (or the project's selected formatter)
--   `python manage.py makemigrations --check --dry-run`
--   Relevant pytest suite.
--   `pip-audit` (or equivalent) before release.
+### 13.7 Required project checks
 
-Report a check as **not run** if it was not actually executed.
+Before accepting an implementation, run the project checks specified by the coding standards:
 
-------------------------------------------------------------------------
+```bash
+ruff check .
+ruff format .
+python manage.py makemigrations --check --dry-run
+pytest
+```
 
-## 13. Open decisions and assumptions
+Run the relevant focused test suite during development as well. Report any check that was not actually executed as **not run**. Run `pip-audit` (or the project's approved equivalent) before release.
 
-The source documents are drafts and explicitly leave some implementation
-details open. These points must be confirmed or recorded as assumptions
-before they are treated as final behavior.
+---
 
-  -------------------------------------------------------------------------
-  Topic                   What the source says    Decision still needed
-  ----------------------- ----------------------- -------------------------
-  Initial Admin           Admin is a role and can How the first Admin
-  provisioning            create Staff.           account is securely
-                                                  provisioned.
+## 14. Open decisions and assumptions
 
-  Staff onboarding        Only Admin can create   Required fields,
-                          Staff.                  invitation vs. temporary
-                                                  password, activation, and
-                                                  first-login behavior.
+The source documents are drafts and leave several catalog details unspecified. These must be confirmed or explicitly recorded as implementation assumptions.
 
-  Reset expiry            Reset links are         Exact validity
-                          time-limited.           duration/configuration.
+| Topic | What the source defines | Decision still needed |
+|---|---|---|
+| Product type values | Product has a `type` field. | Exact allowed choices and any type-specific behavior. |
+| Price range | Sales price and cost price are required. | Whether zero/negative prices are permitted; whether cost must be below sales price. |
+| Product-name uniqueness | No uniqueness rule stated. | Whether duplicate product names are allowed and whether matching is case-insensitive. |
+| Variant dimensions | UI supports dimensions and values. | Whether multiple dimensions are required in the first release. |
+| Variant combinations | Price adjustment per variant value is required. | How multiple selected dimensions/values combine; whether exactly one value per dimension is selected. |
+| Negative adjustment | Not specified. | Whether negative variant adjustments are allowed and any lower bound. |
+| Variant uniqueness | Not specified. | Uniqueness scope for dimension names and values. |
+| Variant changes | Variants can be edited as part of product maintenance. | What happens to existing subscription lines if a variant value is renamed, changed, or removed. |
+| Tax-inclusive/exclusive | Working assumption is tax-exclusive (BR-13 / Open Item B). | Confirm that prices are tax-exclusive. |
+| Tax changes after use | Product has one tax; tax comes from product. | Whether tax can be changed after subscriptions or invoices reference the product, and how future lines are affected. |
+| Currency | Working assumption is one currency (Open Item D). | Confirm the currency and display format. |
+| Archive and restore | Archive is required; archived products are not offered for new subscription lines. | Whether unarchive/restore is supported and whether archiving is blocked when drafts reference the product. |
+| Historical pricing | UI says history must remain understandable and not be silently rewritten. | Exact snapshot fields stored on subscription lines and invoice lines; coordinate with M4/M5. |
+| Audit details | Admin changes must be auditable (NFR-5). | Exact event schema and variant-level audit granularity. |
+| Field limits | Not specified. | Maximum lengths and decimal precision if not already standardized project-wide. |
 
-  Abuse protection        Login, signup, and      Thresholds, window,
-                          reset need throttling   cooldown, and keying
-                          or lockout.             strategy.
+### 14.1 Explicit working assumptions used in this document
 
-  Email verification      Not specified.          Whether customer signup
-                                                  requires verification
-                                                  before portal access.
+1. A newly created product is active by default.
+2. `sales_price` is the base price before variant adjustment and tax.
+3. The `Odoo +560` example is additive for the selected value.
+4. Variant adjustments do not change `cost_price`, because no such behavior is specified.
+5. Archived products remain visible to Admin but are unavailable for new subscription lines.
+6. Product history is preserved; archive is used instead of permanent deletion.
+7. The system's shared money precision/rounding convention is reused rather than introducing a catalog-specific one.
 
-  Session policy          Database-backed         Session expiry, idle
-                          sessions or signed      timeout, and
-                          cookies; no             concurrent-session
-                          local-memory/file       behavior.
-                          dependency.             
+These are implementation assumptions, not all separately approved business decisions. Confirm them where they affect the final data model or user-facing behavior.
 
-  User lifecycle          Admin creates Staff.    Whether Admin can edit,
-                                                  deactivate, reactivate,
-                                                  or delete Staff accounts.
+---
 
-  Customer profile        A Customer profile is   Exact profile fields and
-                          linked to a User.       relationship
-                                                  implementation.
+## 15. Definition of Done
 
-  Account email changes   Not specified.          Whether users can change
-                                                  their email and how the
-                                                  change is verified.
+M2 is complete when:
 
-  MFA/social login        Not specified.          Excluded from M1 unless
-                                                  separately approved.
-  -------------------------------------------------------------------------
+- [ ] FR-2.1 through FR-2.4 are implemented and accepted.
+- [ ] Product and variant models follow the existing Django/PostgreSQL architecture.
+- [ ] Admin-only catalog access is enforced server-side.
+- [ ] Product CRUD and archive behavior work as specified.
+- [ ] Product tax association uses the M9 Tax entity.
+- [ ] Variant values store decimal price adjustments and the UI previews adjusted price.
+- [ ] Active products are available to subscription lines; archived products are excluded from new lines.
+- [ ] Existing subscription/invoice history is not silently rewritten.
+- [ ] Migrations are included and consistent.
+- [ ] Success and failure-path tests pass.
+- [ ] `ruff` and migration checks pass, or are explicitly reported as not run.
+- [ ] No unnecessary dependencies, debug code, or dead code are introduced.
+- [ ] The open decisions and assumptions are documented for review.
 
-### 13.1 Explicit implementation assumptions to avoid
+---
 
-Do not silently assume:
+## 16. Self-review
 
--   That the first registered user becomes Admin.
--   That the first Admin is created through public signup.
--   That Staff can invite or create other Staff.
--   That password reset links last a particular number of minutes or
-    hours.
--   That email verification is mandatory.
--   That a Customer can edit their email or profile.
--   That a Customer can access another Customer's records because an
-    identifier is guessable.
--   That a hidden UI button is sufficient authorization.
+**Requirements covered:** FR-2.1, FR-2.2, FR-2.3, FR-2.4; related role matrix, BR-8, BR-13, BR-14, NFR-5, and NFR-10.  
+**Assumptions made:** New products are active by default; variant adjustment is additive in the provided single-value example; adjustments do not alter cost price; archived products remain visible to Admin but are excluded from new subscription lines; history is preserved. See Section 14.  
+**Got right:** The specification separates catalog ownership from tax administration, plans, subscriptions, and invoicing; uses decimal money; enforces Admin-only catalog management; and preserves the explicitly stated archive/history behavior.  
+**Uncertain / possibly wrong:** Product type choices, negative price/adjustment policy, multiple variant-combination rules, tax-change behavior for products already in use, restore behavior, and exact historical snapshot implementation require confirmation.  
+**Not done / out of scope:** No application code, migrations, templates, or tests were created by this document. No tax CRUD, plan management, subscription lifecycle, or invoice generation is specified as M2 implementation work.  
+**New dependencies:** None.  
+**Tests added:** None — this is a feature specification, not an implementation change.  
+**Checks run:** File content created and path verified; `ruff`, Django migration checks, and pytest were not run because no application code was changed.
 
-If a decision is required to proceed, record the chosen assumption in
-implementation/PR notes and seek confirmation for product-level
-behavior.
+---
 
-------------------------------------------------------------------------
+## 17. Source documents and precedence
 
-## 14. Definition of done
+1. `REQUIREMENTS.md` v2.0 — authoritative source for functional and non-functional requirements.
+2. `UI_UX.md` — interface translation of the requirements, including the Product Catalog section.
+3. `CODING_STANDARDS.md` — implementation architecture, money handling, security, testing, and quality rules.
 
-M1 is complete when:
-
--   [ ] FR-1.1 through FR-1.8 are implemented.
--   [ ] Registration always creates a Customer account.
--   [ ] Email uniqueness is case-insensitive and database-enforced.
--   [ ] The exact password policy is enforced server-side.
--   [ ] Passwords are stored using Django's salted password hashers.
--   [ ] Login and role-based routing work for all three roles.
--   [ ] Password reset is single-use, expiring, and
-    enumeration-resistant.
--   [ ] Only Admin can create Staff.
--   [ ] RBAC is centralized, server-side, and default-deny.
--   [ ] Customer subscriptions, invoices, and payments are isolated by
-    ownership.
--   [ ] CSRF and the required production security settings are enabled.
--   [ ] Login, signup, and password reset have abuse protection.
--   [ ] Success and failure paths have automated tests.
--   [ ] Migrations are included and consistent.
--   [ ] No secrets, plaintext credentials, debug statements, or dead
-    code remain.
--   [ ] The feature respects PostgreSQL and Vercel stateless/serverless
-    constraints.
--   [ ] The implementation self-review is completed.
-
-------------------------------------------------------------------------
-
-## 15. Source of truth and conflict handling
-
-Use the documents in this order for M1:
-
-1.  `REQUIREMENTS.md` --- authoritative definition of what the product
-    must do, especially FR-1.1--FR-1.8 and Section 4.
-2.  `CODING_STANDARDS.md` --- mandatory implementation, architecture,
-    security, testing, and deployment rules.
-3.  `UI_UX.md` --- screen content, navigation, user flows, and expected
-    feedback.
-
-This file consolidates the M1 requirements from those documents. It does
-not claim that the feature is already implemented. Where the documents
-do not define a behavior, the gap is called out in Section 13 rather
-than silently filled with an invented requirement.
+If this document conflicts with `REQUIREMENTS.md`, the requirements document takes precedence. If the source documents do not define a behavior, treat it as an open decision rather than assuming it is approved.
