@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{% if product %}Edit {{ product.name }}{% else %}Create product{% endif %} · Brightloop{% endblock %}
+{% block content %}
+<style>
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .grid { display: grid; gap: 0 1.25rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+  fieldset { border: 0; padding: 0; margin: 0 0 1.25rem; }
+  legend { font-weight: 700; font-size: 1.1rem; margin-bottom: .6rem; }
+  .variants td { vertical-align: top; }
+  .variants .field { margin: 0; }
+</style>
+<p class="help" style="margin:0 0 .5rem">
+  <a href="{% url 'catalog:product_list' %}">Product Catalog</a>
+  {% if product %}/ <a href="{% url 'catalog:product_detail' product.pk %}">{{ product.name }}</a>{% endif %}
+</p>
+<h1>{% if product %}Edit product{% else %}Create product{% endif %}</h1>
+{% if not tax_exists %}
+  <div class="alert warning" role="alert">
+    No taxes are configured yet. A tax must be set up under Configuration (Taxes) before a product can be saved.
+  </div>
+{% endif %}
+<form method="post" novalidate class="panel">{% csrf_token %}
+  {% for error in form.non_field_errors %}<div class="alert error" role="alert">{{ error }}</div>{% endfor %}
+  <fieldset>
+    <legend>Product details</legend>
+    <div class="grid">
+      {% include "accounts/_field.html" with field=form.name %}
+      {% include "accounts/_field.html" with field=form.type %}
+    </div>
+    {% include "accounts/_field.html" with field=form.notes %}
+  </fieldset>
+  <fieldset>
+    <legend>Pricing and tax</legend>
+    <div class="grid">
+      {% include "accounts/_field.html" with field=form.sales_price %}
+      {% include "accounts/_field.html" with field=form.cost_price %}
+      {% include "accounts/_field.html" with field=form.tax %}
+    </div>
+    <p class="help">Prices are entered before tax; the associated tax is added on top.</p>
+  </fieldset>
+  <fieldset>
+    <legend>Variants</legend>
+    <p class="help">Optional. Add a dimension (for example Brand) and a value (for example Odoo) with the amount it adds to the base sales price.</p>
+    {{ formset.management_form }}
+    {% for error in formset.non_form_errors %}<div class="alert error" role="alert">{{ error }}</div>{% endfor %}
+    <div class="tablewrap">
+      <table class="variants">
+        <thead>
+          <tr><th>Dimension</th><th>Value</th><th>Price adjustment</th><th class="num">Adjusted price preview</th><th>Remove</th></tr>
+        </thead>
+        <tbody id="variant-rows">
+          {% for variant_form in formset %}
+            {% include "catalog/_variant_row.html" with variant_form=variant_form %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <template id="variant-row-template">
+      {% include "catalog/_variant_row.html" with variant_form=formset.empty_form %}
+    </template>
+    <div class="actions" style="margin-top:.75rem">
+      <button class="btn secondary" type="button" id="add-variant">Add variant value</button>
+      <span class="help">Preview only — the server recalculates every price when you save.</span>
+    </div>
+  </fieldset>
+  <div class="actions">
+    <button class="btn" type="submit">Save product</button>
+    <a href="{% if product %}{% url 'catalog:product_detail' product.pk %}{% else %}{% url 'catalog:product_list' %}{% endif %}">Cancel</a>
+  </div>
+</form>
+<script>
+  (function () {
+    var basePrice = document.getElementById("{{ form.sales_price.id_for_label }}");
+    var rows = document.getElementById("variant-rows");
+    var total = document.getElementById("id_variants-TOTAL_FORMS");
+
+    // Decimal strings are converted to integer cents so the preview never uses float arithmetic.
+    function toCents(text) {
+      var match = /^(\d+)(?:\.(\d{0,2}))?$/.exec((text || "").trim());
+      if (!match) { return null; }
+      return Number(match[1]) * 100 + Number(((match[2] || "") + "00").slice(0, 2));
+    }
+    function formatCents(cents) {
+      var fraction = String(cents % 100).padStart(2, "0");
+      return Math.floor(cents / 100).toLocaleString("en-US") + "." + fraction;
+    }
+    function refresh() {
+      var base = toCents(basePrice.value);
+      rows.querySelectorAll("[data-variant-row]").forEach(function (row) {
+        var adjustment = toCents(row.querySelector("[name$=price_adjustment]").value);
+        var output = row.querySelector("[data-preview]");
+        output.textContent = base === null || adjustment === null ? "—" : formatCents(base + adjustment);
+      });
+    }
+    document.getElementById("add-variant").addEventListener("click", function () {
+      var html = document.getElementById("variant-row-template").innerHTML;
+      rows.insertAdjacentHTML("beforeend", html.replace(/__prefix__/g, total.value));
+      total.value = Number(total.value) + 1;
+      refresh();
+    });
+    document.addEventListener("input", refresh);
+    refresh();
+  })();
+</script>
+{% endblock %}

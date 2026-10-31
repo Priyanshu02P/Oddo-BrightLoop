@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Archive {{ product.name }} · Brightloop{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<h1>Archive product</h1>
+<div class="panel">
+  {% if product.is_archived %}
+    <p>“{{ product.name }}” is already archived.</p>
+  {% else %}
+    <p>Archive “{{ product.name }}”?</p>
+    <p>It will no longer be offered for new subscription lines. It stays visible in the catalog,
+      and existing subscriptions and invoices that use it are not changed.</p>
+    <form method="post">{% csrf_token %}
+      <div class="actions">
+        <button class="btn danger" type="submit">Archive product</button>
+        <a href="{% url 'catalog:product_detail' product.pk %}">Cancel</a>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}
