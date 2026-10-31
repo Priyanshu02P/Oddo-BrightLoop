@@ -16,6 +16,7 @@
   "crons": [
     { "path": "/app/subscriptions/cron/daily/", "schedule": "0 1 * * *" },
     { "path": "/app/plans/cron/auto-close/", "schedule": "30 1 * * *" },
-    { "path": "/app/billing/cron/run/", "schedule": "0 2 * * *" }
+    { "path": "/app/billing/cron/run/", "schedule": "0 2 * * *" },
+    { "path": "/app/payments/cron/dunning/", "schedule": "0 3 * * *" }
   ]
 }

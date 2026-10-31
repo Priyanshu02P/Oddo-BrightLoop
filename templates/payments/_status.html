@@ -1,0 +1,1 @@
+<span class="badge {{ payment.status }}">{{ payment.get_status_display }}</span>{% if payment.is_simulated %} <span class="badge test">Test mode</span>{% endif %}

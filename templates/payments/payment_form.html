@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Record payment · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'payments:payment_list' %}">Payments</a> / Record payment</p>
+<h1>Record payment</h1>
+<form method="post" novalidate class="panel" style="max-width:40rem">{% csrf_token %}
+  {{ form.idempotency_key }}
+  {% for error in form.non_field_errors %}<div class="alert error" role="alert">{{ error }}</div>{% endfor %}
+  {% include "accounts/_field.html" with field=form.invoice %}
+  {% if not form.invoice.field.queryset.exists %}
+    <p class="help" style="margin-top:-.6rem">No confirmed invoice is waiting for payment. Invoices must be confirmed before they can be paid.</p>
+  {% endif %}
+  <div style="display:grid;gap:0 1rem;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))">
+    {% include "accounts/_field.html" with field=form.method %}
+    {% include "accounts/_field.html" with field=form.amount %}
+    {% include "accounts/_field.html" with field=form.payment_date %}
+  </div>
+  <p class="help" style="margin-top:-.4rem">The amount must equal the invoice total exactly. Partial payments are not accepted.</p>
+  {% if mock_gateway %}
+    <div id="test-gateway" class="alert warning" hidden>
+      <strong>Test mode.</strong> The test gateway is simulated: no money moves and nothing is sent to a real payment provider.
+      {% include "accounts/_field.html" with field=form.simulated_outcome %}
+    </div>
+  {% endif %}
+  {% include "accounts/_field.html" with field=form.note %}
+  <div class="actions">
+    <button class="btn" type="submit">Record payment</button>
+    <a href="{% url 'payments:payment_list' %}">Cancel</a>
+  </div>
+</form>
+{{ invoice_totals|json_script:"invoice-totals" }}
+<script>
+  (function () {
+    var totals = JSON.parse(document.getElementById("invoice-totals").textContent);
+    var invoice = document.getElementById("{{ form.invoice.id_for_label }}");
+    var amount = document.getElementById("{{ form.amount.id_for_label }}");
+    var method = document.getElementById("{{ form.method.id_for_label }}");
+    var gateway = document.getElementById("test-gateway");
+    invoice.addEventListener("change", function () {
+      if (totals[invoice.value]) { amount.value = totals[invoice.value]; }
+    });
+    function toggleGateway() { if (gateway) { gateway.hidden = method.value !== "test_gateway"; } }
+    method.addEventListener("change", toggleGateway);
+    toggleGateway();
+  })();
+</script>
+{% endblock %}

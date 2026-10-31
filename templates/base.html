@@ -71,6 +71,8 @@
     .badge.cancelled, .badge.skipped { color: var(--muted); }
     .badge.overdue, .badge.failed { color: var(--error); }
     .badge.running { color: #1d4f91; }
+    .badge.succeeded { color: #146c43; }
+    .badge.pending, .badge.test { color: var(--amber); }
     .btn.secondary { background: #fff; color: var(--ink); border: 1px solid #8a96aa; }
     .btn.secondary:hover { background: var(--ground); }
     .btn.danger { background: var(--error); }
@@ -101,6 +103,9 @@
           {% endif %}
           {% if user|can:"manage_invoices" %}
             <a href="{% url 'billing:invoice_list' %}">Invoices</a>
+          {% endif %}
+          {% if user|can:"record_payments" %}
+            <a href="{% url 'payments:payment_list' %}">Payments</a>
           {% endif %}
           {% if user|can:"run_billing" %}
             <a href="{% url 'billing:run_list' %}">Billing runs</a>

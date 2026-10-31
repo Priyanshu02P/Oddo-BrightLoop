@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ payment.reference }} · Payments · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'payments:payment_list' %}">Payments</a> / {{ payment.reference }}</p>
+<h1>{{ payment.reference }} {% include "payments/_status.html" %}</h1>
+{% if payment.is_simulated %}
+  <div class="alert warning"><strong>Test mode.</strong> This payment went through the simulated test gateway. No real money was collected.</div>
+{% endif %}
+{% if payment.status == "pending" %}
+  <div class="alert warning">Waiting for the gateway to confirm. Invoice {{ payment.invoice.number }} stays unpaid until it succeeds.</div>
+{% elif payment.status == "failed" %}
+  <div class="alert error">{{ payment.failure_reason }} Invoice {{ payment.invoice.number }} was not marked as paid.</div>
+{% endif %}
+<div class="panel">
+  <table>
+    <tbody>
+      <tr><th scope="row">Invoice</th><td><a href="{% url 'billing:invoice_detail' payment.invoice_id %}">{{ payment.invoice.number }}</a> · <span class="badge {{ payment.invoice.status }}">{{ payment.invoice.get_status_display }}</span></td></tr>
+      <tr><th scope="row">Customer</th><td>{{ payment.invoice.customer_email }}</td></tr>
+      <tr><th scope="row">Subscription</th><td>{{ payment.invoice.subscription.number }}</td></tr>
+      <tr><th scope="row">Amount</th><td>{{ payment.amount|floatformat:"2g" }}</td></tr>
+      <tr><th scope="row">Method</th><td>{{ payment.get_method_display }}</td></tr>
+      <tr><th scope="row">Payment date</th><td>{{ payment.payment_date|date:"Y-m-d" }}</td></tr>
+      {% if payment.provider_reference %}<tr><th scope="row">Gateway reference</th><td>{{ payment.provider_reference }}</td></tr>{% endif %}
+      <tr><th scope="row">Recorded by</th><td>{{ payment.recorded_by.email }} on {{ payment.created_at|date:"Y-m-d H:i" }} UTC</td></tr>
+      {% if payment.note %}<tr><th scope="row">Note</th><td>{{ payment.note|linebreaksbr }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+{% if can_simulate %}
+  <div class="panel" style="margin-top:1.25rem">
+    <h2 style="margin-top:0">Simulate the gateway's answer</h2>
+    <p class="help">Test mode only. In production a real gateway would confirm or decline this payment later.</p>
+    <div class="actions">
+      <form method="post" action="{% url 'payments:payment_resolve' payment.pk 'success' %}">{% csrf_token %}
+        <button class="btn" type="submit">Gateway confirms payment</button></form>
+      <form method="post" action="{% url 'payments:payment_resolve' payment.pk 'failure' %}">{% csrf_token %}
+        <button class="btn danger" type="submit">Gateway declines payment</button></form>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}

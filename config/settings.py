@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "apps.subscriptions",
     "apps.billing",
     "apps.discounts",
+    "apps.payments",
 ]
 
 MIDDLEWARE = [
@@ -150,6 +151,16 @@ QUOTATION_DEFAULT_VALIDITY_DAYS = env.int("QUOTATION_DEFAULT_VALIDITY_DAYS", def
 # for the next trigger. Keep the budget below the serverless function timeout.
 BILLING_BATCH_SIZE = env.int("BILLING_BATCH_SIZE", default=100)
 BILLING_TIME_BUDGET_SECONDS = env.int("BILLING_TIME_BUDGET_SECONDS", default=20)
+
+# Payments (M7). The test gateway simulates success, failure and delay
+# (FR-7.7); it is offered only where this is on, which defaults to DEBUG.
+PAYMENT_MOCK_GATEWAY_ENABLED = env.bool("PAYMENT_MOCK_GATEWAY_ENABLED", default=DEBUG)
+# Overdue reminders (FR-7.8): days past due for each reminder stage. Working
+# assumption from Open Item C, pending confirmation. A failed send is retried
+# by later runs up to DUNNING_MAX_ATTEMPTS times.
+DUNNING_CADENCE_DAYS = env.list("DUNNING_CADENCE_DAYS", cast=int, default=[1, 7, 14])
+DUNNING_MAX_ATTEMPTS = env.int("DUNNING_MAX_ATTEMPTS", default=3)
+DUNNING_BATCH_SIZE = env.int("DUNNING_BATCH_SIZE", default=100)
 
 
 # Internationalization

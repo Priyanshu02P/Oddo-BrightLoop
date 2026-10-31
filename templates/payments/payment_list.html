@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Payments · Brightloop{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Payments</h1>
+  <div class="actions">
+    <a class="btn secondary" href="{% url 'payments:overdue_list' %}">Overdue follow-up</a>
+    <a class="btn" href="{% url 'payments:payment_create' %}">Record payment</a>
+  </div>
+</div>
+<div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));margin-bottom:1.25rem">
+  <a class="panel" style="text-decoration:none;color:inherit" href="{% url 'billing:invoice_list' %}?status=confirmed">
+    <div class="help">Outstanding (confirmed, unpaid)</div>
+    <div style="font-size:1.4rem;font-weight:700">{{ summary.outstanding.total|default:0|floatformat:"2g" }}</div>
+    <div class="help">{{ summary.outstanding.count }} invoice{{ summary.outstanding.count|pluralize }}</div>
+  </a>
+  <a class="panel" style="text-decoration:none;color:inherit" href="{% url 'payments:overdue_list' %}">
+    <div class="help">Overdue</div>
+    <div style="font-size:1.4rem;font-weight:700;color:var(--error)">{{ summary.overdue.total|default:0|floatformat:"2g" }}</div>
+    <div class="help">{{ summary.overdue.count }} invoice{{ summary.overdue.count|pluralize }}</div>
+  </a>
+  <a class="panel" style="text-decoration:none;color:inherit" href="{% url 'billing:invoice_list' %}?status=paid">
+    <div class="help">Paid this month</div>
+    <div style="font-size:1.4rem;font-weight:700;color:#146c43">{{ summary.paid_this_month.total|default:0|floatformat:"2g" }}</div>
+    <div class="help">{{ summary.paid_this_month.count }} invoice{{ summary.paid_this_month.count|pluralize }}</div>
+  </a>
+</div>
+<form method="get" class="panel" style="margin-bottom:1rem">
+  <div style="display:grid;gap:0 1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
+    <div class="field"><label for="q">Search</label>
+      <input type="text" id="q" name="q" value="{{ filters.q }}" placeholder="Payment, invoice or customer email"></div>
+    <div class="field"><label for="method">Method</label>
+      <select id="method" name="method"><option value="">All</option>
+        {% for value, label in methods %}<option value="{{ value }}" {% if filters.method == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="status">Status</label>
+      <select id="status" name="status"><option value="">All</option>
+        {% for value, label in statuses %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="from">Paid from</label><input type="date" id="from" name="from" value="{{ filters.from }}"></div>
+    <div class="field"><label for="to">Paid to</label><input type="date" id="to" name="to" value="{{ filters.to }}"></div>
+  </div>
+  <div class="actions"><button class="btn secondary" type="submit">Apply filters</button><a href="{% url 'payments:payment_list' %}">Clear</a></div>
+</form>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Payment</th><th>Invoice</th><th>Customer</th><th>Method</th><th class="num">Amount</th><th>Date</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for payment in page %}
+        <tr>
+          <td><a href="{% url 'payments:payment_detail' payment.pk %}">{{ payment.reference }}</a></td>
+          <td><a href="{% url 'billing:invoice_detail' payment.invoice_id %}">{{ payment.invoice.number }}</a></td>
+          <td>{{ payment.invoice.customer_email }}</td>
+          <td>{{ payment.get_method_display }}</td>
+          <td class="num">{{ payment.amount|floatformat:"2g" }}</td>
+          <td>{{ payment.payment_date|date:"Y-m-d" }}</td>
+          <td>{% include "payments/_status.html" %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7">No payments match. <a href="{% url 'payments:payment_create' %}">Record payment</a> against a confirmed invoice.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

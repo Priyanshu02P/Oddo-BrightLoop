@@ -12,4 +12,12 @@
 {% include "billing/_summary.html" %}
 <h2 style="margin-top:1.5rem">Lines</h2>
 {% include "billing/_lines.html" %}
+{% if invoice.status == "paid" %}
+  <h2 style="margin-top:1.5rem">Payment</h2>
+  <div class="panel">
+    {% for payment in invoice.payments.all %}{% if payment.status == "succeeded" %}
+      <p style="margin:0">Paid {{ payment.amount|floatformat:"2g" }} on {{ payment.payment_date|date:"Y-m-d" }} by {{ payment.get_method_display|lower }} (reference {{ payment.reference }}).</p>
+    {% endif %}{% endfor %}
+  </div>
+{% endif %}
 {% endblock %}

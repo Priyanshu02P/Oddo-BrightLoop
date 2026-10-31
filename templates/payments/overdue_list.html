@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Overdue follow-up · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'payments:payment_list' %}">Payments</a> / Overdue follow-up</p>
+<h1>Overdue follow-up</h1>
+<p class="help">Confirmed invoices whose due date has passed and that are not paid. An invoice due today is not overdue.
+  Reminder emails go out automatically at {% for day in cadence %}{{ day }}{% if not forloop.last %}, {% endif %}{% endfor %} days past due.</p>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Invoice</th><th>Customer</th><th>Subscription</th><th>Due date</th><th class="num">Days overdue</th><th class="num">Total</th><th>Reminders sent</th><th><span class="help">Action</span></th></tr></thead>
+    <tbody>
+      {% for invoice in page %}
+        <tr>
+          <td><a href="{% url 'billing:invoice_detail' invoice.pk %}">{{ invoice.number }}</a></td>
+          <td>{{ invoice.customer_email }}</td>
+          <td>{{ invoice.subscription.number }}</td>
+          <td>{{ invoice.due_date|date:"Y-m-d" }}</td>
+          <td class="num"><span class="badge overdue">{{ invoice.days_late }}</span></td>
+          <td class="num">{{ invoice.total|floatformat:"2g" }}</td>
+          <td>{% if invoice.last_reminder %}{{ invoice.last_reminder }} of {{ stage_count }}{% if invoice.last_reminder == stage_count %} <span class="badge warning">Final sent</span>{% endif %}{% else %}None yet{% endif %}</td>
+          <td><a href="{% url 'payments:payment_create' %}?invoice={{ invoice.pk }}">Record payment</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8">No overdue invoices. Nothing to follow up.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+<p class="help">After the final reminder the subscription is not paused automatically yet; that step waits for a product decision. Follow up with the customer directly.</p>
+{% endblock %}
