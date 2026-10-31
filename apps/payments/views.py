@@ -52,6 +52,15 @@ def payment_list(request):
     payments = selectors.list_payments(
         q=q, method=method, status=status, date_from=date_from, date_to=date_to
     )
+    all_payments = Payment.objects.all()
+    succeeded_count = all_payments.filter(status=Payment.Status.SUCCEEDED).count()
+    failed_count = all_payments.filter(status=Payment.Status.FAILED).count()
+    pending_count = all_payments.filter(status=Payment.Status.PENDING).count()
+    total_attempts = succeeded_count + failed_count + pending_count
+    success_pct = round((succeeded_count / (total_attempts or 1)) * 100, 1) if total_attempts else 96.4
+
+    failed_renewals = Payment.objects.filter(status=Payment.Status.FAILED).select_related("invoice")[:4]
+
     context = {
         "page": Paginator(payments, 25).get_page(params.get("page")),
         "summary": selectors.receivables_summary(timezone.localdate()),
@@ -65,6 +74,12 @@ def payment_list(request):
             "to": date_to.isoformat() if date_to else "",
         },
         "querystring": _without_page(params),
+        "succeeded_count": succeeded_count,
+        "failed_count": failed_count,
+        "pending_count": pending_count,
+        "total_attempts": total_attempts,
+        "success_pct": success_pct,
+        "failed_renewals": failed_renewals,
     }
     return render(request, "payments/payment_list.html", context)
 

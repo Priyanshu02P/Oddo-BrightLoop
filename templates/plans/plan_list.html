@@ -1,46 +1,76 @@
 {% extends "base.html" %}
 {% block title %}Plans · Brightloop{% endblock %}
+{% block nav_plans %}active{% endblock %}
+
 {% block content %}
-<div class="head">
-  <h1>Plans</h1>
-  <a class="btn" href="{% url 'plans:plan_create' %}">Create plan</a>
+<div class="head" style="margin-bottom: 1.5rem;">
+  <div>
+    <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--bl-ink-3);">Configure</p>
+    <h1 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--bl-ink);">Subscription Plans</h1>
+    <p style="margin: 4px 0 0; font-size: 13px; color: var(--bl-ink-3);">Commercial tiers and lifecycle rules governing recurring billing.</p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{% url 'plans:plan_create' %}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Create plan
+    </a>
+  </div>
 </div>
-<p class="help">A plan can be selected for a new subscription only on a start date inside its availability window.</p>
+
+<p style="margin: 0 0 1rem; font-size: 12px; color: var(--bl-ink-3);">A plan can be selected for a new subscription only on a start date within its availability window.</p>
+
 <div class="tablewrap">
   <table>
     <thead>
       <tr>
-        <th>Plan name</th><th class="num">Price</th><th>Billing period</th><th class="num">Minimum quantity</th>
-        <th>Availability window</th><th>Renewal mode</th><th>Lifecycle options</th><th>Status</th>
-        <th><span class="help">Actions</span></th>
+        <th>Plan name</th>
+        <th class="num">Price</th>
+        <th>Billing period</th>
+        <th class="num">Min qty</th>
+        <th>Availability window</th>
+        <th>Renewal mode</th>
+        <th>Lifecycle options</th>
+        <th>Status</th>
+        <th style="text-align: right;"><span class="help">Actions</span></th>
       </tr>
     </thead>
     <tbody>
       {% for plan in page %}
         <tr>
-          <td><a href="{% url 'plans:plan_detail' plan.pk %}">{{ plan.name }}</a></td>
-          <td class="num">{{ plan.price|floatformat:"2g" }}</td>
+          <td><a href="{% url 'plans:plan_detail' plan.pk %}" style="font-weight: 600; color: var(--bl-link);">{{ plan.name }}</a></td>
+          <td class="num" style="font-family: var(--bl-font-mono); font-weight: 700; color: var(--bl-ink);">${{ plan.price|floatformat:"2g" }}</td>
           <td>{{ plan.get_billing_period_display }}</td>
           <td class="num">{{ plan.minimum_quantity }}</td>
-          <td>{{ plan.availability_start_date|date:"Y-m-d" }} to {{ plan.availability_end_date|date:"Y-m-d" }}</td>
-          <td>{{ plan.get_renewal_mode_display }}</td>
-          <td>{{ plan.enabled_lifecycle_options|join:", "|default:"None enabled" }}</td>
+          <td style="color: var(--bl-ink-3);">{{ plan.availability_start_date|date:"Y-m-d" }} to {{ plan.availability_end_date|date:"Y-m-d" }}</td>
+          <td style="color: var(--bl-ink-2);">{{ plan.get_renewal_mode_display }}</td>
+          <td style="font-size: 12px; color: var(--bl-ink-3);">{{ plan.enabled_lifecycle_options|join:", "|default:"None enabled" }}</td>
           <td><span class="badge {{ plan.availability }}">{{ plan.availability_label }}</span></td>
-          <td class="actions"><a href="{% url 'plans:plan_edit' plan.pk %}">Edit</a></td>
+          <td class="actions" style="justify-content: flex-end;">
+            <a href="{% url 'plans:plan_edit' plan.pk %}" class="btn secondary" style="height: 24px; padding: 0 8px; font-size: 11px;">Edit</a>
+          </td>
         </tr>
       {% empty %}
         <tr>
-          <td colspan="9">No plans exist yet. <a href="{% url 'plans:plan_create' %}">Create plan</a> to get started.</td>
+          <td colspan="9" style="padding: 2.5rem; text-align: center; color: var(--bl-ink-3);">No plans exist yet. <a href="{% url 'plans:plan_create' %}">Create plan</a> to get started.</td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
 {% if page.has_other_pages %}
-  <div class="links">
-    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">Previous</a>{% endif %}
-    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next</a>{% endif %}
+  <div class="links" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      {% if page.has_previous %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?page={{ page.previous_page_number }}">Previous</a>
+      {% endif %}
+    </div>
+    <span style="font-size: 12px; color: var(--bl-ink-3);">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    <div>
+      {% if page.has_next %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?page={{ page.next_page_number }}">Next</a>
+      {% endif %}
+    </div>
   </div>
 {% endif %}
 {% endblock %}

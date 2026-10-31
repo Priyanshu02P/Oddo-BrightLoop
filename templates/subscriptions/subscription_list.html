@@ -1,60 +1,292 @@
 {% extends "base.html" %}
+{% load rbac %}
 {% block title %}Subscriptions · Brightloop{% endblock %}
+{% block nav_subscriptions %}active{% endblock %}
+
 {% block content %}
-<div class="head">
-  <h1>Subscriptions</h1>
-  <a class="btn" href="{% url 'subscriptions:subscription_create' %}">Create subscription</a>
-</div>
-<form method="get" class="panel" style="margin-bottom:1rem">
-  <div style="display:grid;gap:0 1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
-    <div class="field"><label for="q">Search</label>
-      <input type="text" id="q" name="q" value="{{ filters.q }}" placeholder="Number or customer email"></div>
-    <div class="field"><label for="status">Status</label>
-      <select id="status" name="status"><option value="">All</option>
-        {% for value, label in statuses %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select></div>
-    <div class="field"><label for="plan">Plan</label>
-      <select id="plan" name="plan"><option value="">All</option>
-        {% for plan in plans %}<option value="{{ plan.pk }}" {% if filters.plan == plan.pk %}selected{% endif %}>{{ plan.name }}</option>{% endfor %}
-      </select></div>
-    <div class="field"><label for="renewal_mode">Renewal mode</label>
-      <select id="renewal_mode" name="renewal_mode"><option value="">All</option>
-        {% for value, label in renewal_modes %}<option value="{{ value }}" {% if filters.renewal_mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select></div>
+<!-- Page Header -->
+<div class="head" style="margin-bottom: 1.5rem;">
+  <div>
+    <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--bl-ink-3);">Workspace</p>
+    <h1 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--bl-ink);">Subscriptions</h1>
+    <p style="margin: 4px 0 0; font-size: 13px; color: var(--bl-ink-3);">Every contract from draft to close, and what renews next.</p>
   </div>
-  <div class="option"><label style="display:flex;gap:.5rem;align-items:center">
-    <input type="checkbox" name="payment_failed" value="1" {% if filters.payment_failed %}checked{% endif %}> Payment failed only</label></div>
-  <div class="actions"><button class="btn secondary" type="submit">Apply filters</button><a href="{% url 'subscriptions:subscription_list' %}">Clear</a></div>
+  <div class="actions">
+    {% if user|can:"manage_subscriptions" %}
+      <a class="btn" href="{% url 'subscriptions:subscription_create' %}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        New subscription
+      </a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 6-Stage Lifecycle Pipeline bar (Doubles as quick filter!) -->
+<section style="background: var(--bl-surface); border: 1px solid var(--bl-line); border-radius: 4px; padding: 6px; margin-bottom: 1.5rem;">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px;">
+    <!-- 1. Draft -->
+    <a href="?status=draft" style="display: block; text-decoration: none; padding: 10px 12px; border-radius: 4px; position: relative; transition: background 0.1s; {% if filters.status == 'draft' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink);{% endif %}">
+      <p style="margin: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; {% if filters.status == 'draft' %}color: var(--bl-nav-text);{% else %}color: var(--bl-ink-3);{% endif %}">1. Draft</p>
+      <p style="margin: 4px 0 0; font-size: 18px; font-weight: 700;">{{ draft_count }}</p>
+      <div style="margin-top: 8px; height: 3px; border-radius: 2px; background: var(--bl-line); overflow: hidden;">
+        <div style="height: 100%; width: 25%; background: var(--bl-leaf);"></div>
+      </div>
+    </a>
+
+    <!-- 2. Quotation -->
+    <a href="?status=quotation" style="display: block; text-decoration: none; padding: 10px 12px; border-radius: 4px; position: relative; transition: background 0.1s; {% if filters.status == 'quotation' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink);{% endif %}">
+      <p style="margin: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; {% if filters.status == 'quotation' %}color: var(--bl-nav-text);{% else %}color: var(--bl-ink-3);{% endif %}">2. Quotation</p>
+      <p style="margin: 4px 0 0; font-size: 18px; font-weight: 700;">{{ quotation_count }}</p>
+      <div style="margin-top: 8px; height: 3px; border-radius: 2px; background: var(--bl-line); overflow: hidden;">
+        <div style="height: 100%; width: 35%; background: var(--bl-leaf);"></div>
+      </div>
+    </a>
+
+    <!-- 3. Confirmed -->
+    <a href="?status=confirmed" style="display: block; text-decoration: none; padding: 10px 12px; border-radius: 4px; position: relative; transition: background 0.1s; {% if filters.status == 'confirmed' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink);{% endif %}">
+      <p style="margin: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; {% if filters.status == 'confirmed' %}color: var(--bl-nav-text);{% else %}color: var(--bl-ink-3);{% endif %}">3. Confirmed</p>
+      <p style="margin: 4px 0 0; font-size: 18px; font-weight: 700;">{{ confirmed_count }}</p>
+      <div style="margin-top: 8px; height: 3px; border-radius: 2px; background: var(--bl-line); overflow: hidden;">
+        <div style="height: 100%; width: 45%; background: var(--bl-leaf);"></div>
+      </div>
+    </a>
+
+    <!-- 4. Active -->
+    <a href="?status=active" style="display: block; text-decoration: none; padding: 10px 12px; border-radius: 4px; position: relative; transition: background 0.1s; {% if filters.status == 'active' or not filters.status and not filters.payment_failed and not filters.q %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink);{% endif %}">
+      <p style="margin: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; {% if filters.status == 'active' or not filters.status and not filters.payment_failed and not filters.q %}color: var(--bl-nav-text);{% else %}color: var(--bl-ink-3);{% endif %}">4. Active</p>
+      <p style="margin: 4px 0 0; font-size: 18px; font-weight: 700;">{{ active_count }}</p>
+      <div style="margin-top: 8px; height: 3px; border-radius: 2px; background: var(--bl-line); overflow: hidden;">
+        <div style="height: 100%; width: 90%; background: var(--bl-leaf);"></div>
+      </div>
+    </a>
+
+    <!-- 5. Paused -->
+    <a href="?status=paused" style="display: block; text-decoration: none; padding: 10px 12px; border-radius: 4px; position: relative; transition: background 0.1s; {% if filters.status == 'paused' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink);{% endif %}">
+      <p style="margin: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; {% if filters.status == 'paused' %}color: var(--bl-nav-text);{% else %}color: var(--bl-ink-3);{% endif %}">5. Paused</p>
+      <p style="margin: 4px 0 0; font-size: 18px; font-weight: 700;">{{ paused_count }}</p>
+      <div style="margin-top: 8px; height: 3px; border-radius: 2px; background: var(--bl-line); overflow: hidden;">
+        <div style="height: 100%; width: 20%; background: var(--bl-chart-2);"></div>
+      </div>
+    </a>
+
+    <!-- 6. Closed -->
+    <a href="?status=closed" style="display: block; text-decoration: none; padding: 10px 12px; border-radius: 4px; position: relative; transition: background 0.1s; {% if filters.status == 'closed' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink);{% endif %}">
+      <p style="margin: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; {% if filters.status == 'closed' %}color: var(--bl-nav-text);{% else %}color: var(--bl-ink-3);{% endif %}">6. Closed</p>
+      <p style="margin: 4px 0 0; font-size: 18px; font-weight: 700;">{{ closed_count }}</p>
+      <div style="margin-top: 8px; height: 3px; border-radius: 2px; background: var(--bl-line); overflow: hidden;">
+        <div style="height: 100%; width: 15%; background: var(--bl-chart-3);"></div>
+      </div>
+    </a>
+  </div>
+</section>
+
+<!-- Middle Grid: MRR Growth Chart vs Target + Upcoming Renewals Timeline -->
+<section style="display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem;" class="dashboard-grid-2">
+  <!-- MRR Line Chart -->
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem;">
+      <div>
+        <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-ink);">Monthly recurring revenue</h2>
+        <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">Actual MRR against plan target</p>
+      </div>
+      <div style="text-align: right;">
+        <span style="display: block; font-size: 18px; font-weight: 700; color: var(--bl-ink); line-height: 1;">$42,580</span>
+        <span style="font-size: 11px; font-weight: 600; color: var(--bl-good);">ARR $510,960</span>
+      </div>
+    </div>
+
+    <!-- SVG Area + Line Chart -->
+    <div style="position: relative; height: 180px;">
+      <svg viewBox="0 0 500 160" preserveAspectRatio="none" style="width: 100%; height: 150px; overflow: visible;">
+        <defs>
+          <linearGradient id="mrrGrad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="var(--bl-chart-1)" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="var(--bl-chart-1)" stop-opacity="0.0"/>
+          </linearGradient>
+        </defs>
+        <!-- Grid lines -->
+        <line x1="0" y1="20" x2="500" y2="20" stroke="var(--bl-line)" stroke-width="1"/>
+        <line x1="0" y1="60" x2="500" y2="60" stroke="var(--bl-line)" stroke-width="1"/>
+        <line x1="0" y1="100" x2="500" y2="100" stroke="var(--bl-line)" stroke-width="1"/>
+        <line x1="0" y1="140" x2="500" y2="140" stroke="var(--bl-line)" stroke-width="1"/>
+
+        <!-- Target line (dashed) -->
+        <polyline points="0,130 50,122 100,114 150,106 200,98 250,90 300,82 350,74 400,66 450,58 500,50" fill="none" stroke="var(--bl-chart-4)" stroke-width="2" stroke-dasharray="4 4"/>
+
+        <!-- Area fill -->
+        <polygon points="0,135 50,128 100,122 150,118 200,105 250,94 300,90 350,78 400,69 450,62 500,48 500,150 0,150" fill="url(#mrrGrad)"/>
+
+        <!-- Actual MRR line -->
+        <polyline points="0,135 50,128 100,122 150,118 200,105 250,94 300,90 350,78 400,69 450,62 500,48" fill="none" stroke="var(--bl-chart-1)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--bl-ink-3); margin-top: 4px;">
+        <span>Nov</span><span>Jan</span><span>Mar</span><span>May</span><span>Jul</span><span>Sep</span><span>Nov</span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--bl-ink-3);">
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: var(--bl-chart-1);"></span> Actual MRR</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 2px; background: var(--bl-chart-4);"></span> Target</span>
+    </div>
+  </div>
+
+  <!-- Upcoming Renewals Timeline -->
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem;">
+      <div>
+        <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-ink);">Upcoming renewals</h2>
+        <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">Next 14 days · scheduled contracts</p>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--bl-faint)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    </div>
+
+    <ol style="list-style: none; padding: 0 0 0 16px; margin: 0; position: relative; border-left: 1px solid var(--bl-line);">
+      {% for sub in upcoming_renewals %}
+        <li style="position: relative; margin-bottom: 1rem;">
+          <span style="position: absolute; left: -21px; top: 4px; width: 9px; height: 9px; border-radius: 50%; background: {% if sub.payment_failed %}var(--bl-bad){% else %}var(--bl-bar-active){% endif %}; border: 2px solid var(--bl-surface);"></span>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--bl-ink-3);">
+                {{ sub.next_billing_date|date:"D · M d" }}
+              </span>
+              <p style="margin: 2px 0 0; font-size: 13px; font-weight: 600; color: var(--bl-ink);">
+                {{ sub.customer.user.email }}
+                <span style="font-weight: 400; color: var(--bl-ink-3);">· {{ sub.plan.name }}</span>
+              </p>
+              {% if sub.payment_failed %}
+                <span style="display: inline-block; margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--bl-bad);">Payment failed · retry pending</span>
+              {% endif %}
+            </div>
+            <span style="font-family: var(--bl-font-mono); font-size: 13px; font-weight: 700; color: var(--bl-ink);">
+              ${{ sub.plan.price|floatformat:"0g" }}
+            </span>
+          </div>
+        </li>
+      {% empty %}
+        <li style="font-size: 12px; color: var(--bl-ink-3);">No active renewals due soon.</li>
+      {% endfor %}
+    </ol>
+  </div>
+</section>
+
+<!-- Filter Form -->
+<form method="get" class="panel" style="margin-bottom: 1rem; padding: 1rem;">
+  <div style="display: grid; gap: 0.75rem 1rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));">
+    <div class="field" style="margin: 0;">
+      <label for="q">Search</label>
+      <input type="text" id="q" name="q" value="{{ filters.q }}" placeholder="Number or customer email">
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        <option value="">All statuses</option>
+        {% for value, label in statuses %}
+          <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="plan">Plan</label>
+      <select id="plan" name="plan">
+        <option value="">All plans</option>
+        {% for plan in plans %}
+          <option value="{{ plan.pk }}" {% if filters.plan == plan.pk %}selected{% endif %}>{{ plan.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="renewal_mode">Renewal mode</label>
+      <select id="renewal_mode" name="renewal_mode">
+        <option value="">All modes</option>
+        {% for value, label in renewal_modes %}
+          <option value="{{ value }}" {% if filters.renewal_mode == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem;">
+    <label style="display: flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 400; margin: 0; cursor: pointer;">
+      <input type="checkbox" name="payment_failed" value="1" {% if filters.payment_failed %}checked{% endif %}>
+      Payment failed only
+    </label>
+    <div class="actions">
+      <button class="btn secondary" type="submit" style="height: 30px; font-size: 12px;">Apply</button>
+      <a href="{% url 'subscriptions:subscription_list' %}" style="font-size: 12px; color: var(--bl-ink-3);">Clear</a>
+    </div>
+  </div>
 </form>
+
+<!-- Table -->
 <div class="tablewrap">
   <table>
     <thead>
-      <tr><th>Number</th><th>Customer</th><th>Plan</th><th>Start</th><th>Expiry</th><th>Next billing</th><th>Renewal</th><th>Status</th></tr>
+      <tr>
+        <th>Subscription</th>
+        <th>Customer</th>
+        <th>Plan</th>
+        <th>Start date</th>
+        <th>Next billing</th>
+        <th>Renewal</th>
+        <th class="num">Amount</th>
+        <th>Status</th>
+      </tr>
     </thead>
     <tbody>
       {% for subscription in page %}
         <tr>
-          <td><a href="{% url 'subscriptions:subscription_detail' subscription.pk %}">{{ subscription.number }}</a></td>
-          <td>{{ subscription.customer.user.email }}</td>
-          <td>{{ subscription.plan.name }}</td>
-          <td>{{ subscription.start_date|date:"Y-m-d" }}</td>
-          <td>{{ subscription.expiry_date|date:"Y-m-d" }}</td>
-          <td>{{ subscription.next_billing_date|date:"Y-m-d"|default:"—" }}</td>
-          <td>{{ subscription.plan.get_renewal_mode_display }}</td>
-          <td><span class="badge {{ subscription.status }}">{{ subscription.get_status_display }}</span>
-            {% if subscription.payment_failed %}<span class="badge warning">Payment failed</span>{% endif %}</td>
+          <td>
+            <a href="{% url 'subscriptions:subscription_detail' subscription.pk %}" style="font-family: var(--bl-font-mono); font-weight: 600;">
+              {{ subscription.number }}
+            </a>
+          </td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 3px; border: 1px solid var(--bl-line); background: var(--bl-subtle); font-size: 10px; font-weight: 700; color: var(--bl-ink-2);">
+                {{ subscription.customer.user.email|slice:":2"|upper }}
+              </span>
+              <span style="font-weight: 500; color: var(--bl-ink);">{{ subscription.customer.user.email }}</span>
+            </div>
+          </td>
+          <td style="color: var(--bl-ink-2);">{{ subscription.plan.name }}</td>
+          <td style="color: var(--bl-ink-3);">{{ subscription.start_date|date:"Y-m-d" }}</td>
+          <td>
+            {% if subscription.next_billing_date %}
+              <span style="font-weight: 500; color: var(--bl-ink);">{{ subscription.next_billing_date|date:"Y-m-d" }}</span>
+            {% else %}
+              <span style="color: var(--bl-ink-3);">—</span>
+            {% endif %}
+          </td>
+          <td style="color: var(--bl-ink-3); font-size: 12px;">{{ subscription.plan.get_renewal_mode_display }}</td>
+          <td class="num" style="font-weight: 700; font-family: var(--bl-font-mono);">
+            ${{ subscription.plan.price|floatformat:"2g" }}
+          </td>
+          <td>
+            <span class="badge {{ subscription.status }}">{{ subscription.get_status_display }}</span>
+            {% if subscription.payment_failed %}
+              <span class="badge warning" style="margin-left: 4px;">Failed</span>
+            {% endif %}
+          </td>
         </tr>
       {% empty %}
-        <tr><td colspan="8">No subscriptions match. <a href="{% url 'subscriptions:subscription_create' %}">Create subscription</a> to get started.</td></tr>
+        <tr><td colspan="8" style="padding: 2.5rem; text-align: center; color: var(--bl-ink-3);">No subscriptions match your selection.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
 {% if page.has_other_pages %}
-  <div class="links">
-    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&q={{ filters.q|urlencode }}&status={{ filters.status }}">Previous</a>{% endif %}
-    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?page={{ page.next_page_number }}&q={{ filters.q|urlencode }}&status={{ filters.status }}">Next</a>{% endif %}
+  <div class="links" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      {% if page.has_previous %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?page={{ page.previous_page_number }}&amp;q={{ filters.q|urlencode }}&amp;status={{ filters.status }}">Previous</a>
+      {% endif %}
+    </div>
+    <span style="font-size: 12px; color: var(--bl-ink-3);">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    <div>
+      {% if page.has_next %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?page={{ page.next_page_number }}&amp;q={{ filters.q|urlencode }}&amp;status={{ filters.status }}">Next</a>
+      {% endif %}
+    </div>
   </div>
 {% endif %}
 {% endblock %}

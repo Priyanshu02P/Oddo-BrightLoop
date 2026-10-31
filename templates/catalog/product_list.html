@@ -1,59 +1,95 @@
 {% extends "base.html" %}
 {% block title %}Product Catalog · Brightloop{% endblock %}
+{% block nav_catalog %}active{% endblock %}
+
 {% block content %}
-<div class="head">
-  <h1>Product Catalog</h1>
-  <a class="btn" href="{% url 'catalog:product_create' %}">Create product</a>
+<div class="head" style="margin-bottom: 1.5rem;">
+  <div>
+    <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--bl-ink-3);">Configure</p>
+    <h1 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--bl-ink);">Product Catalog</h1>
+    <p style="margin: 4px 0 0; font-size: 13px; color: var(--bl-ink-3);">Manage recurring products, services, and goods for subscriptions.</p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{% url 'catalog:product_create' %}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Create product
+    </a>
+  </div>
 </div>
-<nav class="links" aria-label="Filter by status" style="margin:0 0 1rem">
-  {% if status %}<a href="?">All</a>{% else %}<strong aria-current="page">All</strong>{% endif %}
-  {% if status == "active" %}<strong aria-current="page">Active</strong>{% else %}<a href="?status=active">Active</a>{% endif %}
-  {% if status == "archived" %}<strong aria-current="page">Archived</strong>{% else %}<a href="?status=archived">Archived</a>{% endif %}
-</nav>
+
+<div style="display: flex; gap: 4px; padding: 4px; background: var(--bl-surface); border: 1px solid var(--bl-line); border-radius: 4px; margin-bottom: 1.25rem; width: fit-content;">
+  <a href="?" style="display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 3px; font-size: 12px; font-weight: 600; text-decoration: none; {% if not status %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink-2);{% endif %}">
+    All
+  </a>
+  <a href="?status=active" style="display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 3px; font-size: 12px; font-weight: 600; text-decoration: none; {% if status == 'active' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink-2);{% endif %}">
+    Active
+  </a>
+  <a href="?status=archived" style="display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 3px; font-size: 12px; font-weight: 600; text-decoration: none; {% if status == 'archived' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink-2);{% endif %}">
+    Archived
+  </a>
+</div>
+
 <div class="tablewrap">
   <table>
     <thead>
       <tr>
-        <th>Product name</th><th>Type</th><th class="num">Sales price</th><th class="num">Cost price</th>
-        <th>Tax</th><th class="num">Variants</th><th>Status</th><th><span class="help">Actions</span></th>
+        <th>Product name</th>
+        <th>Type</th>
+        <th class="num">Sales price</th>
+        <th class="num">Cost price</th>
+        <th>Tax</th>
+        <th class="num">Variants</th>
+        <th>Status</th>
+        <th style="text-align: right;"><span class="help">Actions</span></th>
       </tr>
     </thead>
     <tbody>
       {% for product in page %}
         <tr>
-          <td><a href="{% url 'catalog:product_detail' product.pk %}">{{ product.name }}</a></td>
+          <td><a href="{% url 'catalog:product_detail' product.pk %}" style="font-weight: 600; color: var(--bl-link);">{{ product.name }}</a></td>
           <td>{{ product.get_type_display }}</td>
-          <td class="num">{{ product.sales_price|floatformat:"2g" }}</td>
-          <td class="num">{{ product.cost_price|floatformat:"2g" }}</td>
-          <td>{{ product.tax }}</td>
+          <td class="num" style="font-family: var(--bl-font-mono); font-weight: 600;">${{ product.sales_price|floatformat:"2g" }}</td>
+          <td class="num" style="font-family: var(--bl-font-mono); color: var(--bl-ink-3);">${{ product.cost_price|floatformat:"2g" }}</td>
+          <td style="color: var(--bl-ink-2);">{{ product.tax|default:"None" }}</td>
           <td class="num">{{ product.variant_count }}</td>
           <td>
-            {% if product.is_archived %}<span class="badge archived">Archived</span>
-            {% else %}<span class="badge active">Active</span>{% endif %}
+            {% if product.is_archived %}
+              <span class="badge archived">Archived</span>
+            {% else %}
+              <span class="badge active">Active</span>
+            {% endif %}
           </td>
-          <td class="actions">
-            <a href="{% url 'catalog:product_edit' product.pk %}">Edit</a>
+          <td class="actions" style="justify-content: flex-end;">
+            <a href="{% url 'catalog:product_edit' product.pk %}" class="btn secondary" style="height: 24px; padding: 0 8px; font-size: 11px;">Edit</a>
             {% if not product.is_archived %}
-              <a href="{% url 'catalog:product_archive' product.pk %}">Archive</a>
+              <a href="{% url 'catalog:product_archive' product.pk %}" style="font-size: 12px; color: var(--bl-ink-3); margin-left: 6px;">Archive</a>
             {% endif %}
           </td>
         </tr>
       {% empty %}
         <tr>
-          <td colspan="8">
-            {% if status %}No {{ status }} products.
-            {% else %}No products exist yet. <a href="{% url 'catalog:product_create' %}">Create product</a> to start the catalog.{% endif %}
+          <td colspan="8" style="padding: 2.5rem; text-align: center; color: var(--bl-ink-3);">
+            {% if status %}No {{ status }} products found.{% else %}No products created yet. <a href="{% url 'catalog:product_create' %}">Create product</a> to get started.{% endif %}
           </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
 {% if page.has_other_pages %}
-  <div class="links">
-    {% if page.has_previous %}<a href="?{% if status %}status={{ status }}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
-    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?{% if status %}status={{ status }}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+  <div class="links" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      {% if page.has_previous %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?{% if status %}status={{ status }}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>
+      {% endif %}
+    </div>
+    <span style="font-size: 12px; color: var(--bl-ink-3);">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    <div>
+      {% if page.has_next %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?{% if status %}status={{ status }}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>
+      {% endif %}
+    </div>
   </div>
 {% endif %}
 {% endblock %}

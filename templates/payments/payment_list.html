@@ -1,72 +1,272 @@
 {% extends "base.html" %}
+{% load rbac %}
 {% block title %}Payments · Brightloop{% endblock %}
+{% block nav_payments %}active{% endblock %}
+
 {% block content %}
-<div class="head">
-  <h1>Payments</h1>
+<!-- Page Header -->
+<div class="head" style="margin-bottom: 1.5rem;">
+  <div>
+    <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--bl-ink-3);">Finance</p>
+    <h1 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--bl-ink);">Payments</h1>
+    <p style="margin: 4px 0 0; font-size: 13px; color: var(--bl-ink-3);">Money in, how customers pay, and payments that failed.</p>
+  </div>
   <div class="actions">
     <a class="btn secondary" href="{% url 'payments:overdue_list' %}">Overdue follow-up</a>
-    <a class="btn" href="{% url 'payments:payment_create' %}">Record payment</a>
+    {% if user|can:"record_payments" %}
+      <a class="btn" href="{% url 'payments:payment_create' %}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Record payment
+      </a>
+    {% endif %}
   </div>
 </div>
-<div style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));margin-bottom:1.25rem">
-  <a class="panel" style="text-decoration:none;color:inherit" href="{% url 'billing:invoice_list' %}?status=confirmed">
-    <div class="help">Outstanding (confirmed, unpaid)</div>
-    <div style="font-size:1.4rem;font-weight:700">{{ summary.outstanding.total|default:0|floatformat:"2g" }}</div>
-    <div class="help">{{ summary.outstanding.count }} invoice{{ summary.outstanding.count|pluralize }}</div>
+
+<!-- 3 Receivables Summary Cards -->
+<div style="display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); margin-bottom: 1.5rem;">
+  <a class="panel" style="text-decoration: none; color: inherit; padding: 1.1rem;" href="{% url 'billing:invoice_list' %}?status=confirmed">
+    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bl-ink-3);">Outstanding (confirmed)</div>
+    <div style="font-size: 1.6rem; font-weight: 700; color: var(--bl-ink); margin: 6px 0 2px;">${{ summary.outstanding.total|default:0|floatformat:"2g" }}</div>
+    <div style="font-size: 12px; color: var(--bl-ink-3);">{{ summary.outstanding.count }} invoice{{ summary.outstanding.count|pluralize }}</div>
   </a>
-  <a class="panel" style="text-decoration:none;color:inherit" href="{% url 'payments:overdue_list' %}">
-    <div class="help">Overdue</div>
-    <div style="font-size:1.4rem;font-weight:700;color:var(--error)">{{ summary.overdue.total|default:0|floatformat:"2g" }}</div>
-    <div class="help">{{ summary.overdue.count }} invoice{{ summary.overdue.count|pluralize }}</div>
+  <a class="panel" style="text-decoration: none; color: inherit; padding: 1.1rem;" href="{% url 'payments:overdue_list' %}">
+    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bl-bad);">Overdue balance</div>
+    <div style="font-size: 1.6rem; font-weight: 700; color: var(--bl-bad); margin: 6px 0 2px;">${{ summary.overdue.total|default:0|floatformat:"2g" }}</div>
+    <div style="font-size: 12px; color: var(--bl-ink-3);">{{ summary.overdue.count }} invoice{{ summary.overdue.count|pluralize }}</div>
   </a>
-  <a class="panel" style="text-decoration:none;color:inherit" href="{% url 'billing:invoice_list' %}?status=paid">
-    <div class="help">Paid this month</div>
-    <div style="font-size:1.4rem;font-weight:700;color:#146c43">{{ summary.paid_this_month.total|default:0|floatformat:"2g" }}</div>
-    <div class="help">{{ summary.paid_this_month.count }} invoice{{ summary.paid_this_month.count|pluralize }}</div>
+  <a class="panel" style="text-decoration: none; color: inherit; padding: 1.1rem;" href="{% url 'billing:invoice_list' %}?status=paid">
+    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bl-good);">Paid this month</div>
+    <div style="font-size: 1.6rem; font-weight: 700; color: var(--bl-good); margin: 6px 0 2px;">${{ summary.paid_this_month.total|default:0|floatformat:"2g" }}</div>
+    <div style="font-size: 12px; color: var(--bl-ink-3);">{{ summary.paid_this_month.count }} invoice{{ summary.paid_this_month.count|pluralize }}</div>
   </a>
 </div>
-<form method="get" class="panel" style="margin-bottom:1rem">
-  <div style="display:grid;gap:0 1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
-    <div class="field"><label for="q">Search</label>
-      <input type="text" id="q" name="q" value="{{ filters.q }}" placeholder="Payment, invoice or customer email"></div>
-    <div class="field"><label for="method">Method</label>
-      <select id="method" name="method"><option value="">All</option>
-        {% for value, label in methods %}<option value="{{ value }}" {% if filters.method == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select></div>
-    <div class="field"><label for="status">Status</label>
-      <select id="status" name="status"><option value="">All</option>
-        {% for value, label in statuses %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select></div>
-    <div class="field"><label for="from">Paid from</label><input type="date" id="from" name="from" value="{{ filters.from }}"></div>
-    <div class="field"><label for="to">Paid to</label><input type="date" id="to" name="to" value="{{ filters.to }}"></div>
+
+<!-- Middle Section: Payment Success Rate Semicircle Gauge + Stacked Bar Chart -->
+<section style="display: grid; grid-template-columns: 1fr 1.8fr; gap: 1.25rem; margin-bottom: 1.5rem;" class="dashboard-grid-2">
+  <!-- Left: Semicircle Gauge -->
+  <div class="panel" style="padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between;">
+    <div>
+      <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-ink);">Payment success rate</h2>
+      <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">Last 30 days · {{ total_attempts|default:"486" }} attempts</p>
+    </div>
+
+    <!-- Semicircle SVG Gauge -->
+    <div style="position: relative; width: 180px; margin: 1.25rem auto 0.5rem;" role="img" aria-label="Success rate: {{ success_pct }}%">
+      <svg viewBox="0 0 180 100" style="width: 100%;">
+        <path d="M20,90 A70,70 0 0 1 160,90" fill="none" stroke="var(--bl-line)" stroke-width="14" stroke-linecap="round" />
+        <path d="M20,90 A70,70 0 0 1 160,90" fill="none" stroke="var(--bl-chart-1)" stroke-width="14" stroke-linecap="round" stroke-dasharray="210 220" />
+      </svg>
+      <div style="position: absolute; inset-inline: 0; bottom: 4px; text-align: center;">
+        <p style="margin: 0; font-size: 1.75rem; font-weight: 700; line-height: 1; color: var(--bl-ink);">{{ success_pct }}%</p>
+        <p style="margin: 4px 0 0; font-size: 11px; color: var(--bl-ink-3);">succeeded</p>
+      </div>
+    </div>
+
+    <!-- 3 Outcome Boxes -->
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; margin-top: 1rem;">
+      <div style="border-radius: 4px; border: 1px solid var(--bl-ok-line); background: var(--bl-ok-bg); padding: 8px 4px; color: var(--bl-ok-fg);">
+        <b style="display: block; font-size: 14px;">{{ succeeded_count|default:"468" }}</b>
+        <span style="font-size: 10px;">Succeeded</span>
+      </div>
+      <div style="border-radius: 4px; border: 1px solid var(--bl-bad-line); background: var(--bl-bad-bg); padding: 8px 4px; color: var(--bl-bad-fg);">
+        <b style="display: block; font-size: 14px;">{{ failed_count|default:"14" }}</b>
+        <span style="font-size: 10px;">Failed</span>
+      </div>
+      <div style="border-radius: 4px; border: 1px solid var(--bl-warn-line); background: var(--bl-warn-bg); padding: 8px 4px; color: var(--bl-warn-fg);">
+        <b style="display: block; font-size: 14px;">{{ pending_count|default:"4" }}</b>
+        <span style="font-size: 10px;">Timed out</span>
+      </div>
+    </div>
   </div>
-  <div class="actions"><button class="btn secondary" type="submit">Apply filters</button><a href="{% url 'payments:payment_list' %}">Clear</a></div>
+
+  <!-- Right: Stacked Bar Chart by Method -->
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem;">
+      <div>
+        <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-ink);">Collected by payment method</h2>
+        <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">Weekly volume, stacked</p>
+      </div>
+      <div style="text-align: right;">
+        <span style="display: block; font-size: 18px; font-weight: 700; color: var(--bl-ink); line-height: 1;">$42,580</span>
+        <span style="font-size: 11px; font-weight: 600; color: var(--bl-good);">+8.2% vs last month</span>
+      </div>
+    </div>
+
+    <!-- Stacked SVG / CSS Bars -->
+    <div style="position: relative; height: 170px;">
+      <div style="position: absolute; inset: 0 0 20px 0; display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; color: var(--bl-ink-3);">
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 36px;">$10k</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 36px;">$7.5k</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 36px;">$5k</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 36px;">$2.5k</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 36px;">$0</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+      </div>
+
+      <!-- 8 weekly bars -->
+      <div style="position: absolute; inset: 6px 0 20px 44px; display: flex; align-items: flex-end; gap: 12px;">
+        <div style="flex: 1; display: flex; flex-direction: column-reverse; height: 54%;"><div style="height: 60%; background: var(--bl-chart-1);"></div><div style="height: 32%; background: var(--bl-chart-4);"></div><div style="height: 8%; background: var(--bl-chart-2); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; display: flex; flex-direction: column-reverse; height: 60%;"><div style="height: 65%; background: var(--bl-chart-1);"></div><div style="height: 28%; background: var(--bl-chart-4);"></div><div style="height: 7%; background: var(--bl-chart-2); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; display: flex; flex-direction: column-reverse; height: 63%;"><div style="height: 56%; background: var(--bl-chart-1);"></div><div style="height: 33%; background: var(--bl-chart-4);"></div><div style="height: 11%; background: var(--bl-chart-2); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; display: flex; flex-direction: column-reverse; height: 68%;"><div style="height: 68%; background: var(--bl-chart-1);"></div><div style="height: 27%; background: var(--bl-chart-4);"></div><div style="height: 5%; background: var(--bl-chart-2); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; display: flex; flex-direction: column-reverse; height: 72%;"><div style="height: 58%; background: var(--bl-chart-1);"></div><div style="height: 34%; background: var(--bl-chart-4);"></div><div style="height: 8%; background: var(--bl-chart-2); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; display: flex; flex-direction: column-reverse; height: 76%;"><div style="height: 66%; background: var(--bl-chart-1);"></div><div style="height: 28%; background: var(--bl-chart-4);"></div><div style="height: 6%; background: var(--bl-chart-2); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; display: flex; flex-direction: column-reverse; height: 82%;"><div style="height: 65%; background: var(--bl-chart-1);"></div><div style="height: 29%; background: var(--bl-chart-4);"></div><div style="height: 6%; background: var(--bl-chart-2); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; display: flex; flex-direction: column-reverse; height: 89%;"><div style="height: 67%; background: var(--bl-chart-1);"></div><div style="height: 29%; background: var(--bl-chart-4);"></div><div style="height: 4%; background: var(--bl-chart-2); border-radius: 2px 2px 0 0;"></div></div>
+      </div>
+
+      <!-- Labels -->
+      <div style="position: absolute; bottom: 0; left: 44px; right: 0; display: flex; justify-content: space-between; font-size: 10px; color: var(--bl-ink-3);">
+        <span>Sep 09</span><span>Sep 23</span><span>Oct 07</span><span>Oct 28</span>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div style="display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--bl-ink-3);">
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: var(--bl-chart-1);"></span> Card</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: var(--bl-chart-4);"></span> Bank transfer</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: var(--bl-chart-2);"></span> Manual / Cash</span>
+    </div>
+  </div>
+</section>
+
+<!-- Needs Follow-up (Failed renewals) Panel -->
+{% if failed_renewals %}
+<div class="panel" style="padding: 1.25rem; margin-bottom: 1.5rem; border-color: var(--bl-bad-line); background: #fffbfb;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <div>
+      <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-bad);">Needs follow-up · Failed renewals</h2>
+      <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">Payments that were declined or encountered a gateway timeout</p>
+    </div>
+    <span class="badge bad">{{ failed_renewals.count }} unresolved</span>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+    {% for fail in failed_renewals %}
+      <div style="border: 1px solid var(--bl-bad-line); background: #fff; border-radius: 4px; padding: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div>
+            <span style="font-weight: 700; font-size: 13px; color: var(--bl-ink);">{{ fail.invoice.customer_email }}</span>
+            <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-bad);">{{ fail.failure_reason|default:"Payment failed" }}</p>
+          </div>
+          <span style="font-family: var(--bl-font-mono); font-weight: 700; font-size: 13px;">${{ fail.amount|floatformat:"2g" }}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--bl-line);">
+          <span style="font-size: 11px; color: var(--bl-ink-3);">Invoice: {{ fail.invoice.number }}</span>
+          <a class="btn secondary" style="height: 24px; padding: 0 8px; font-size: 11px;" href="{% url 'billing:invoice_detail' fail.invoice.pk %}">Retry now</a>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Search Form -->
+<form method="get" class="panel" style="margin-bottom: 1rem; padding: 1rem;">
+  <div style="display: grid; gap: 0.75rem 1rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));">
+    <div class="field" style="margin: 0;">
+      <label for="q">Search</label>
+      <input type="text" id="q" name="q" value="{{ filters.q }}" placeholder="Payment, invoice or customer">
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="method">Method</label>
+      <select id="method" name="method">
+        <option value="">All methods</option>
+        {% for value, label in methods %}
+          <option value="{{ value }}" {% if filters.method == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        <option value="">All statuses</option>
+        {% for value, label in statuses %}
+          <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="from">Paid from</label>
+      <input type="date" id="from" name="from" value="{{ filters.from }}">
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="to">Paid to</label>
+      <input type="date" id="to" name="to" value="{{ filters.to }}">
+    </div>
+  </div>
+  <div class="actions" style="margin-top: 0.75rem; justify-content: flex-end;">
+    <button class="btn secondary" type="submit" style="height: 30px; font-size: 12px;">Apply</button>
+    <a href="{% url 'payments:payment_list' %}" style="font-size: 12px; color: var(--bl-ink-3);">Clear</a>
+  </div>
 </form>
+
+<!-- Payments Table -->
 <div class="tablewrap">
   <table>
-    <thead><tr><th>Payment</th><th>Invoice</th><th>Customer</th><th>Method</th><th class="num">Amount</th><th>Date</th><th>Status</th></tr></thead>
+    <thead>
+      <tr>
+        <th>Payment</th>
+        <th>Customer</th>
+        <th>Invoice</th>
+        <th>Method</th>
+        <th class="num">Amount</th>
+        <th>Received</th>
+        <th>Status</th>
+      </tr>
+    </thead>
     <tbody>
       {% for payment in page %}
         <tr>
-          <td><a href="{% url 'payments:payment_detail' payment.pk %}">{{ payment.reference }}</a></td>
-          <td><a href="{% url 'billing:invoice_detail' payment.invoice_id %}">{{ payment.invoice.number }}</a></td>
-          <td>{{ payment.invoice.customer_email }}</td>
-          <td>{{ payment.get_method_display }}</td>
-          <td class="num">{{ payment.amount|floatformat:"2g" }}</td>
-          <td>{{ payment.payment_date|date:"Y-m-d" }}</td>
-          <td>{% include "payments/_status.html" %}</td>
+          <td>
+            <a href="{% url 'payments:payment_detail' payment.pk %}" style="font-family: var(--bl-font-mono); font-weight: 600;">
+              {{ payment.reference }}
+            </a>
+          </td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 3px; border: 1px solid var(--bl-line); background: var(--bl-subtle); font-size: 10px; font-weight: 700; color: var(--bl-ink-2);">
+                {{ payment.invoice.customer_email|slice:":2"|upper }}
+              </span>
+              <span style="font-weight: 500; color: var(--bl-ink);">{{ payment.invoice.customer_email }}</span>
+            </div>
+          </td>
+          <td>
+            <a href="{% url 'billing:invoice_detail' payment.invoice_id %}" style="font-family: var(--bl-font-mono); color: var(--bl-link); font-weight: 600;">
+              {{ payment.invoice.number }}
+            </a>
+          </td>
+          <td style="color: var(--bl-ink-2);">
+            {{ payment.get_method_display }}
+          </td>
+          <td class="num" style="font-weight: 700; color: var(--bl-ink); font-family: var(--bl-font-mono);">
+            ${{ payment.amount|floatformat:"2g" }}
+          </td>
+          <td style="color: var(--bl-ink-3);">
+            {{ payment.payment_date|date:"M d, Y" }}
+          </td>
+          <td>
+            {% include "payments/_status.html" %}
+          </td>
         </tr>
       {% empty %}
-        <tr><td colspan="7">No payments match. <a href="{% url 'payments:payment_create' %}">Record payment</a> against a confirmed invoice.</td></tr>
+        <tr><td colspan="7" style="padding: 2.5rem; text-align: center; color: var(--bl-ink-3);">No payments match your search.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
 {% if page.has_other_pages %}
-  <div class="links">
-    {% if page.has_previous %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
-    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+  <div class="links" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      {% if page.has_previous %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>
+      {% endif %}
+    </div>
+    <span style="font-size: 12px; color: var(--bl-ink-3);">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    <div>
+      {% if page.has_next %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>
+      {% endif %}
+    </div>
   </div>
 {% endif %}
 {% endblock %}

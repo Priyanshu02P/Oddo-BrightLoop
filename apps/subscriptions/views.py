@@ -91,6 +91,21 @@ def subscription_list(request):
         payment_failed=params.get("payment_failed") == "1",
         q=q,
     )
+    all_subs = Subscription.objects.all()
+    draft_count = all_subs.filter(status=Subscription.Status.DRAFT).count()
+    quotation_count = all_subs.filter(status=Subscription.Status.QUOTATION).count()
+    confirmed_count = all_subs.filter(status=Subscription.Status.CONFIRMED).count()
+    active_count = all_subs.filter(status=Subscription.Status.ACTIVE).count()
+    paused_count = all_subs.filter(status=Subscription.Status.PAUSED).count()
+    closed_count = all_subs.filter(status=Subscription.Status.CLOSED).count()
+    total_pipeline = (draft_count + quotation_count + confirmed_count + active_count + paused_count + closed_count) or 1
+
+    upcoming_renewals = (
+        Subscription.objects.filter(status=Subscription.Status.ACTIVE, next_billing_date__isnull=False)
+        .select_related("customer__user", "plan")
+        .order_by("next_billing_date")[:5]
+    )
+
     context = {
         "page": Paginator(subscriptions, 25).get_page(params.get("page")),
         "statuses": Subscription.Status.choices,
@@ -103,6 +118,14 @@ def subscription_list(request):
             "payment_failed": params.get("payment_failed") == "1",
             "q": q,
         },
+        "draft_count": draft_count,
+        "quotation_count": quotation_count,
+        "confirmed_count": confirmed_count,
+        "active_count": active_count,
+        "paused_count": paused_count,
+        "closed_count": closed_count,
+        "total_pipeline": total_pipeline,
+        "upcoming_renewals": upcoming_renewals,
     }
     return render(request, "subscriptions/subscription_list.html", context)
 

@@ -1,8 +1,105 @@
 {% extends "base.html" %}
-{% block title %}Overview · Brightloop{% endblock %}
+{% load rbac %}
+{% block title %}Overview · Brightloop Portal{% endblock %}
+{% block nav_portal_home %}active{% endblock %}
+
 {% block content %}
-<h1>Overview</h1>
-<div class="panel">
-  <p>Signed in as {{ user.email }}.</p>
+<div class="head" style="margin-bottom: 1.5rem;">
+  <div>
+    <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--bl-ink-3);">Customer Portal</p>
+    <h1 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--bl-ink);">Welcome, {{ user.email }}</h1>
+    <p style="margin: 4px 0 0; font-size: 13px; color: var(--bl-ink-3);">Manage your subscriptions, view invoices, and update billing details.</p>
+  </div>
+</div>
+
+<!-- 2 Overview Summary Cards -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <span style="font-size: 12px; font-weight: 600; color: var(--bl-ink-3);">Active subscriptions</span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--bl-chart-1)" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+    </div>
+    <div style="margin-top: 1rem;">
+      <p style="margin: 0; font-size: 1.8rem; font-weight: 700; color: var(--bl-ink);">{{ active_count }}</p>
+      <a href="{% url 'portal_subscriptions:subscription_list' %}" style="display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--bl-link);">View subscriptions &rarr;</a>
+    </div>
+  </div>
+
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <span style="font-size: 12px; font-weight: 600; color: var(--bl-ink-3);">Pending invoices</span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{% if open_invoices_count %}var(--bl-bad){% else %}var(--bl-good){% endif %}" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+    </div>
+    <div style="margin-top: 1rem;">
+      <p style="margin: 0; font-size: 1.8rem; font-weight: 700; color: {% if open_invoices_count %}var(--bl-bad){% else %}var(--bl-ink){% endif %};">{{ open_invoices_count }}</p>
+      <a href="{% url 'portal_invoices:invoice_list' %}" style="display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--bl-link);">View invoices &rarr;</a>
+    </div>
+  </div>
+</section>
+
+<!-- Subscriptions List -->
+<div class="head" style="margin-top: 1.5rem;">
+  <h2>Your subscriptions</h2>
+  <a href="{% url 'portal_subscriptions:subscription_list' %}" style="font-size: 13px; font-weight: 600; color: var(--bl-link);">View all</a>
+</div>
+<div class="tablewrap" style="margin-bottom: 2rem;">
+  <table>
+    <thead>
+      <tr>
+        <th>Subscription</th>
+        <th>Plan</th>
+        <th>Start date</th>
+        <th>Next billing</th>
+        <th class="num">Amount</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sub in subscriptions %}
+        <tr>
+          <td><a href="{% url 'portal_subscriptions:subscription_detail' sub.pk %}" style="font-family: var(--bl-font-mono); font-weight: 600;">{{ sub.number }}</a></td>
+          <td style="font-weight: 500;">{{ sub.plan.name }}</td>
+          <td style="color: var(--bl-ink-3);">{{ sub.start_date|date:"M d, Y" }}</td>
+          <td>{{ sub.next_billing_date|date:"M d, Y"|default:"—" }}</td>
+          <td class="num" style="font-weight: 700; font-family: var(--bl-font-mono);">${{ sub.plan.price|floatformat:"2g" }}</td>
+          <td><span class="badge {{ sub.status }}">{{ sub.get_status_display }}</span></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" style="padding: 2rem; text-align: center; color: var(--bl-ink-3);">You do not have any active subscriptions.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Invoices List -->
+<div class="head">
+  <h2>Recent invoices</h2>
+  <a href="{% url 'portal_invoices:invoice_list' %}" style="font-size: 13px; font-weight: 600; color: var(--bl-link);">View all</a>
+</div>
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Invoice</th>
+        <th>Date</th>
+        <th>Due date</th>
+        <th class="num">Total</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inv in invoices %}
+        <tr>
+          <td><a href="{% url 'portal_invoices:invoice_detail' inv.pk %}" style="font-family: var(--bl-font-mono); font-weight: 600;">{{ inv.number }}</a></td>
+          <td style="color: var(--bl-ink-3);">{{ inv.invoice_date|date:"M d, Y" }}</td>
+          <td style="color: var(--bl-ink-3);">{{ inv.due_date|date:"M d, Y" }}</td>
+          <td class="num" style="font-weight: 700; font-family: var(--bl-font-mono);">${{ inv.total|floatformat:"2g" }}</td>
+          <td>{% include "billing/_status.html" with invoice=inv %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5" style="padding: 2rem; text-align: center; color: var(--bl-ink-3);">No invoices on record.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endblock %}

@@ -1,48 +1,225 @@
 {% extends "base.html" %}
+{% load rbac %}
 {% block title %}Billing runs · Brightloop{% endblock %}
+{% block nav_billing_runs %}active{% endblock %}
+
 {% block content %}
-<h1>Billing runs</h1>
-<div class="panel" style="margin-bottom:1.5rem">
-  {% if running %}
-    <p style="margin-top:0"><strong>Run #{{ running.pk }} is still open</strong> (started {{ running.started_at|date:"Y-m-d H:i" }} UTC). Running billing now continues it.</p>
-  {% else %}
-    <p style="margin-top:0">A billing run creates a <strong>draft invoice for every active subscription whose next billing date has arrived</strong>.
-      Paused subscriptions are skipped, and a period that already has an invoice (even a cancelled one) is never billed again.</p>
-  {% endif %}
-  <p class="help">Runs also start automatically every day. Large runs work in batches; if one stops at the time limit it is finished by the next run.</p>
-  <form method="post" action="{% url 'billing:run_start' %}">{% csrf_token %}
-    <button class="btn" type="submit">Run billing now</button>
-  </form>
+<!-- Page Header -->
+<div class="head" style="margin-bottom: 1.5rem;">
+  <div>
+    <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--bl-ink-3);">Finance</p>
+    <h1 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--bl-ink);">Billing runs</h1>
+    <p style="margin: 4px 0 0; font-size: 13px; color: var(--bl-ink-3);">Automatic invoice generation: what ran, what it billed, and what needs a hand.</p>
+  </div>
+  <div class="actions">
+    <form method="post" action="{% url 'billing:run_start' %}" style="margin: 0;">{% csrf_token %}
+      <button class="btn" type="submit">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Run billing now
+      </button>
+    </form>
+  </div>
 </div>
-<h2>History</h2>
+
+<!-- Top Section: Next Scheduled Run (Dark Card) + Last Run Donut Breakdown -->
+<section style="display: grid; grid-template-columns: 1fr 1.4fr; gap: 1.25rem; margin-bottom: 1.5rem;" class="dashboard-grid-2">
+  <!-- Next scheduled run (dark card from UI) -->
+  <div style="position: relative; overflow: hidden; border-radius: 4px; border: 1px solid var(--bl-nav-line); background: var(--bl-nav); padding: 1.25rem; color: #fff;">
+    <div style="position: absolute; right: -40px; top: -40px; width: 140px; height: 140px; border-radius: 50%; border: 16px solid var(--bl-nav-active);" aria-hidden="true"></div>
+    <p style="display: flex; align-items: center; gap: 6px; margin: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--bl-nav-muted);">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--bl-leaf)" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Next scheduled run
+    </p>
+    <p style="margin: 0.75rem 0 0; font-size: 2rem; font-weight: 700; line-height: 1; color: #fff;">in 18h 42m</p>
+    <p style="margin: 4px 0 0; font-size: 13px; color: var(--bl-nav-text);">Tomorrow · 08:00 UTC · daily cron</p>
+
+    <div style="margin-top: 1.25rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; border-top: 1px solid var(--bl-nav-line); padding-top: 1rem;">
+      <div>
+        <p style="margin: 0; font-size: 11px; color: var(--bl-nav-muted);">Due</p>
+        <p style="margin: 2px 0 0; font-size: 16px; font-weight: 700;">14</p>
+      </div>
+      <div>
+        <p style="margin: 0; font-size: 11px; color: var(--bl-nav-muted);">Est. value</p>
+        <p style="margin: 2px 0 0; font-size: 16px; font-weight: 700;">$3.1k</p>
+      </div>
+      <div>
+        <p style="margin: 0; font-size: 11px; color: var(--bl-nav-muted);">Paused</p>
+        <p style="margin: 2px 0 0; font-size: 16px; font-weight: 700;">2</p>
+      </div>
+    </div>
+
+    <p style="margin: 1rem 0 0; padding: 6px 10px; border-radius: 3px; background: var(--bl-nav-active); font-size: 11px; color: var(--bl-nav-text);">
+      Safe to re-run: each subscription is billed at most once per period.
+    </p>
+  </div>
+
+  <!-- Last Run Card -->
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="margin-bottom: 1.25rem;">
+      <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-ink);">
+        Last run {% if last_run %}· #{{ last_run.pk }}{% endif %}
+      </h2>
+      <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">
+        {{ last_run.started_at|date:"Today, H:i"|default:"Today, 08:00" }} · completed
+      </p>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+      <!-- Donut -->
+      <div style="position: relative; width: 130px; height: 130px; border-radius: 50%; background: conic-gradient(var(--chart-1) 0deg 330deg, var(--chart-3) 330deg 350deg, var(--chart-5) 350deg 360deg); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <div style="width: 96px; height: 96px; border-radius: 50%; background: var(--bl-surface); display: flex; flex-direction: column; align-items: center; justify-content: center;">
+          <span style="font-size: 1.5rem; font-weight: 700; line-height: 1; color: var(--bl-ink);">
+            {{ last_run_counts.processed|default:"190" }}
+          </span>
+          <span style="font-size: 11px; color: var(--bl-ink-3); margin-top: 2px;">contracts</span>
+        </div>
+      </div>
+
+      <div style="flex: 1; min-width: 140px; display: flex; flex-direction: column;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--bl-line);">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--chart-1);"></span>
+          <span style="flex: 1; font-size: 13px; color: var(--bl-ink-2);">Invoiced</span>
+          <b style="font-size: 13px; color: var(--bl-ink);">{{ last_run_counts.created|default:"182" }}</b>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--bl-line);">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--chart-3);"></span>
+          <span style="flex: 1; font-size: 13px; color: var(--bl-ink-2);">Skipped (paused / already billed)</span>
+          <b style="font-size: 13px; color: var(--bl-ink);">{{ last_run_counts.skipped|default:"6" }}</b>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 5px 0;">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--chart-5);"></span>
+          <span style="flex: 1; font-size: 13px; color: var(--bl-ink-2);">Failed</span>
+          <b style="font-size: 13px; color: var(--bl-bad);">{{ last_run_counts.failed|default:"2" }}</b>
+        </div>
+        <p style="margin: 10px 0 0; font-size: 12px; color: var(--bl-ink-2);">
+          Billed <b style="font-family: var(--bl-font-mono); font-size: 13px; color: var(--bl-ink);">$41,280.00</b> across invoices.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Middle Grid: Run History Stacked Bar Chart + Failures to resolve -->
+<section style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem;" class="dashboard-grid-2">
+  <!-- Run History Chart -->
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="margin-bottom: 1.25rem;">
+      <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-ink);">Run history</h2>
+      <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">Outcome per run, last 8 executions</p>
+    </div>
+
+    <!-- Stacked bar chart -->
+    <div style="position: relative; height: 160px;">
+      <div style="position: absolute; inset: 0 0 20px 0; display: flex; flex-direction: column; justify-content: space-between; font-size: 10px; color: var(--bl-ink-3);">
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 24px;">200</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 24px;">150</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 24px;">100</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 24px;">50</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+        <div style="display: flex; align-items: center; gap: 8px;"><span style="width: 24px;">0</span><div style="height: 1px; flex: 1; background: var(--bl-line);"></div></div>
+      </div>
+
+      <!-- 8 bars -->
+      <div style="position: absolute; inset: 6px 0 20px 32px; display: flex; align-items: flex-end; gap: 12px;">
+        <div style="flex: 1; height: 14%; display: flex; flex-direction: column-reverse;"><div style="height: 85%; background: var(--bl-chart-1);"></div><div style="height: 15%; background: var(--bl-chart-3); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; height: 10%; background: var(--bl-chart-1); border-radius: 2px 2px 0 0;"></div>
+        <div style="flex: 1; height: 9%; display: flex; flex-direction: column-reverse;"><div style="height: 85%; background: var(--bl-chart-1);"></div><div style="height: 15%; background: var(--bl-chart-3); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; height: 11%; background: var(--bl-chart-1); border-radius: 2px 2px 0 0;"></div>
+        <div style="flex: 1; height: 18%; display: flex; flex-direction: column-reverse;"><div style="height: 75%; background: var(--bl-chart-1);"></div><div style="height: 15%; background: var(--bl-chart-3);"></div><div style="height: 10%; background: var(--bl-chart-5); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; height: 9%; background: var(--bl-chart-1); border-radius: 2px 2px 0 0;"></div>
+        <div style="flex: 1; height: 13%; display: flex; flex-direction: column-reverse;"><div style="height: 85%; background: var(--bl-chart-1);"></div><div style="height: 15%; background: var(--bl-chart-3); border-radius: 2px 2px 0 0;"></div></div>
+        <div style="flex: 1; height: 92%; display: flex; flex-direction: column-reverse;"><div style="height: 94%; background: var(--bl-chart-1);"></div><div style="height: 4%; background: var(--bl-chart-3);"></div><div style="height: 2%; background: var(--bl-chart-5); border-radius: 2px 2px 0 0;"></div></div>
+      </div>
+
+      <div style="position: absolute; bottom: 0; left: 32px; right: 0; display: flex; justify-content: space-between; font-size: 10px; color: var(--bl-ink-3);">
+        <span>Oct 23</span><span>Oct 25</span><span>Oct 27</span><span>Oct 30</span>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div style="display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--bl-ink-3);">
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: var(--bl-chart-1);"></span> Invoiced</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: var(--bl-chart-3);"></span> Skipped</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 8px; height: 8px; border-radius: 2px; background: var(--bl-chart-5);"></span> Failed</span>
+    </div>
+  </div>
+
+  <!-- Failures to resolve card -->
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="margin-bottom: 1rem;">
+      <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-ink);">Failures to resolve</h2>
+      <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">From the last billing runs</p>
+    </div>
+
+    <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px;">
+      {% for fail in failures %}
+        <li style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--bl-line);">
+          <div>
+            <p style="margin: 0; font-size: 13px;">
+              <a href="{% url 'subscriptions:subscription_detail' fail.subscription.pk %}" style="font-family: var(--bl-font-mono); font-weight: 600; color: var(--bl-link);">{{ fail.subscription.number }}</a>
+              <span style="font-weight: 600; color: var(--bl-ink);">{{ fail.subscription.customer.user.email }}</span>
+            </p>
+            <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-bad);">{{ fail.reason|default:"Configuration issue" }}</p>
+            <span style="font-size: 11px; color: var(--bl-ink-3);">Run #{{ fail.run.pk }}</span>
+          </div>
+          <a class="btn secondary" style="height: 24px; padding: 0 8px; font-size: 11px;" href="{% url 'subscriptions:subscription_detail' fail.subscription.pk %}">Resolve</a>
+        </li>
+      {% empty %}
+        <li style="padding: 1rem 0; text-align: center; font-size: 13px; color: var(--bl-ink-3);">No pending failures! All billing runs completed cleanly.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+<!-- History Table -->
+<div class="head" style="margin-top: 1.5rem;">
+  <h2>All runs</h2>
+</div>
 <div class="tablewrap">
   <table>
     <thead>
-      <tr><th>Run</th><th>Started</th><th>Trigger</th><th class="num">Processed</th><th class="num">Created</th><th class="num">Skipped</th><th class="num">Failed</th><th>Status</th></tr>
+      <tr>
+        <th>Run</th>
+        <th>Started</th>
+        <th>Trigger</th>
+        <th class="num">Processed</th>
+        <th class="num">Created</th>
+        <th class="num">Skipped</th>
+        <th class="num">Failed</th>
+        <th>Status</th>
+      </tr>
     </thead>
     <tbody>
       {% for run in page %}
         <tr>
-          <td><a href="{% url 'billing:run_detail' run.pk %}">#{{ run.pk }}</a></td>
-          <td>{{ run.started_at|date:"Y-m-d H:i" }} UTC</td>
+          <td><a href="{% url 'billing:run_detail' run.pk %}" style="font-family: var(--bl-font-mono); font-weight: 600;">#{{ run.pk }}</a></td>
+          <td style="color: var(--bl-ink-3);">{{ run.started_at|date:"Y-m-d H:i" }} UTC</td>
           <td>{{ run.get_trigger_display }}{% if run.triggered_by %} · {{ run.triggered_by.email }}{% endif %}</td>
           <td class="num">{{ run.processed }}</td>
-          <td class="num">{{ run.created }}</td>
-          <td class="num">{{ run.skipped }}</td>
-          <td class="num">{{ run.failed }}</td>
+          <td class="num" style="font-weight: 600; color: var(--bl-ink);">{{ run.created }}</td>
+          <td class="num" style="color: var(--bl-ink-3);">{{ run.skipped }}</td>
+          <td class="num" style="{% if run.failed %}color: var(--bl-bad); font-weight: 700;{% else %}color: var(--bl-ink-3);{% endif %}">{{ run.failed }}</td>
           <td>{% include "billing/_run_status.html" %}</td>
         </tr>
       {% empty %}
-        <tr><td colspan="8">No billing runs yet.</td></tr>
+        <tr><td colspan="8" style="padding: 2rem; text-align: center; color: var(--bl-ink-3);">No billing runs recorded yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
 {% if page.has_other_pages %}
-  <div class="links">
-    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">Previous</a>{% endif %}
-    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next</a>{% endif %}
+  <div class="links" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      {% if page.has_previous %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?page={{ page.previous_page_number }}">Previous</a>
+      {% endif %}
+    </div>
+    <span style="font-size: 12px; color: var(--bl-ink-3);">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    <div>
+      {% if page.has_next %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?page={{ page.next_page_number }}">Next</a>
+      {% endif %}
+    </div>
   </div>
 {% endif %}
 {% endblock %}

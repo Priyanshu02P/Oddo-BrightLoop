@@ -1,49 +1,66 @@
 {% extends "base.html" %}
 {% block title %}Discounts · Brightloop{% endblock %}
+{% block nav_discounts %}active{% endblock %}
+
 {% block content %}
-<div class="head">
-  <h1>Discounts</h1>
-  <a class="btn" href="{% url 'discounts:discount_create' %}">New discount</a>
-</div>
-<form method="get" class="panel" style="margin-bottom:1rem">
-  <div style="display:grid;gap:0 1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
-    <div class="field"><label for="q">Search</label>
-      <input type="text" id="q" name="q" value="{{ q }}" placeholder="Discount name"></div>
-    <div class="field"><label for="is_active">Status</label>
-      <select id="is_active" name="is_active">
-        <option value="">All</option>
-        <option value="1" {% if is_active_filter == "1" %}selected{% endif %}>Active</option>
-        <option value="0" {% if is_active_filter == "0" %}selected{% endif %}>Inactive</option>
-      </select></div>
+<div class="head" style="margin-bottom: 1.5rem;">
+  <div>
+    <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--bl-ink-3);">Configure</p>
+    <h1 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--bl-ink);">Discounts</h1>
+    <p style="margin: 4px 0 0; font-size: 13px; color: var(--bl-ink-3);">Promotional rules, customer limits, and automated pricing reductions.</p>
   </div>
   <div class="actions">
-    <button class="btn secondary" type="submit">Apply filters</button>
-    <a href="{% url 'discounts:discount_list' %}">Clear</a>
+    <a class="btn" href="{% url 'discounts:discount_create' %}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New discount
+    </a>
+  </div>
+</div>
+
+<form method="get" class="panel" style="margin-bottom: 1rem; padding: 1rem;">
+  <div style="display: grid; gap: 0.75rem 1rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));">
+    <div class="field" style="margin: 0;">
+      <label for="q">Search</label>
+      <input type="text" id="q" name="q" value="{{ q }}" placeholder="Discount name">
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="is_active">Status</label>
+      <select id="is_active" name="is_active">
+        <option value="">All statuses</option>
+        <option value="1" {% if is_active_filter == "1" %}selected{% endif %}>Active</option>
+        <option value="0" {% if is_active_filter == "0" %}selected{% endif %}>Inactive</option>
+      </select>
+    </div>
+  </div>
+  <div class="actions" style="margin-top: 0.75rem; justify-content: flex-end;">
+    <button class="btn secondary" type="submit" style="height: 30px; font-size: 12px;">Apply filters</button>
+    <a href="{% url 'discounts:discount_list' %}" style="font-size: 12px; color: var(--bl-ink-3);">Clear</a>
   </div>
 </form>
+
 <div class="tablewrap">
   <table>
     <thead>
       <tr>
         <th>Name</th>
         <th>Type</th>
-        <th>Value</th>
+        <th class="num">Value</th>
         <th>Scope</th>
         <th>Validity</th>
-        <th>Limit / customer</th>
+        <th class="num">Limit / customer</th>
         <th>Status</th>
       </tr>
     </thead>
     <tbody>
       {% for discount in page %}
         <tr>
-          <td><a href="{% url 'discounts:discount_detail' discount.pk %}">{{ discount.name }}</a></td>
+          <td><a href="{% url 'discounts:discount_detail' discount.pk %}" style="font-weight: 600; color: var(--bl-link);">{{ discount.name }}</a></td>
           <td>{{ discount.get_discount_type_display }}</td>
-          <td class="num">
-            {% if discount.discount_type == "fixed" %}{{ discount.value|floatformat:"2g" }}{% else %}{{ discount.value|floatformat:"2g" }}%{% endif %}
+          <td class="num" style="font-family: var(--bl-font-mono); font-weight: 700;">
+            {% if discount.discount_type == "fixed" %}${{ discount.value|floatformat:"2g" }}{% else %}{{ discount.value|floatformat:"2g" }}%{% endif %}
           </td>
-          <td>{{ discount.get_scope_type_display }}</td>
-          <td>{{ discount.start_date|date:"Y-m-d" }} – {{ discount.end_date|date:"Y-m-d" }}</td>
+          <td style="color: var(--bl-ink-2);">{{ discount.get_scope_type_display }}</td>
+          <td style="color: var(--bl-ink-3);">{{ discount.start_date|date:"Y-m-d" }} – {{ discount.end_date|date:"Y-m-d" }}</td>
           <td class="num">{{ discount.usage_limit_per_customer }}</td>
           <td>
             {% with label=discount.status_label %}
@@ -52,16 +69,25 @@
           </td>
         </tr>
       {% empty %}
-        <tr><td colspan="7">No discounts found. <a href="{% url 'discounts:discount_create' %}">Create the first one</a>.</td></tr>
+        <tr><td colspan="7" style="padding: 2.5rem; text-align: center; color: var(--bl-ink-3);">No discounts found. <a href="{% url 'discounts:discount_create' %}">Create the first one</a>.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
 {% if page.has_other_pages %}
-  <div class="links">
-    {% if page.has_previous %}<a href="?q={{ q }}&is_active={{ is_active_filter }}&page={{ page.previous_page_number }}">Previous</a>{% endif %}
-    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?q={{ q }}&is_active={{ is_active_filter }}&page={{ page.next_page_number }}">Next</a>{% endif %}
+  <div class="links" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      {% if page.has_previous %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?q={{ q }}&amp;is_active={{ is_active_filter }}&amp;page={{ page.previous_page_number }}">Previous</a>
+      {% endif %}
+    </div>
+    <span style="font-size: 12px; color: var(--bl-ink-3);">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    <div>
+      {% if page.has_next %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?q={{ q }}&amp;is_active={{ is_active_filter }}&amp;page={{ page.next_page_number }}">Next</a>
+      {% endif %}
+    </div>
   </div>
 {% endif %}
 {% endblock %}

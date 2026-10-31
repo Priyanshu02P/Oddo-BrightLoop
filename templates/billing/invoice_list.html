@@ -1,54 +1,338 @@
 {% extends "base.html" %}
+{% load rbac %}
 {% block title %}Invoices · Brightloop{% endblock %}
+{% block nav_invoices %}active{% endblock %}
+
 {% block content %}
-<div class="head">
-  <h1>Invoices</h1>
-  <a class="btn secondary" href="{% url 'billing:run_list' %}">Billing runs</a>
-</div>
-<form method="get" class="panel" style="margin-bottom:1rem">
-  <div style="display:grid;gap:0 1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
-    <div class="field"><label for="q">Search</label>
-      <input type="text" id="q" name="q" value="{{ filters.q }}" placeholder="Invoice, subscription or customer email"></div>
-    <div class="field"><label for="status">Status</label>
-      <select id="status" name="status"><option value="">All</option>
-        {% for value, label in statuses %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select></div>
-    <div class="field"><label for="from">Invoice date from</label>
-      <input type="date" id="from" name="from" value="{{ filters.from }}"></div>
-    <div class="field"><label for="to">Invoice date to</label>
-      <input type="date" id="to" name="to" value="{{ filters.to }}"></div>
+<!-- Page Header -->
+<div class="head" style="margin-bottom: 1.5rem;">
+  <div>
+    <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--bl-ink-3);">Finance</p>
+    <h1 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--bl-ink);">Invoices</h1>
+    <p style="margin: 4px 0 0; font-size: 13px; color: var(--bl-ink-3);">What has been billed, what is still owed, and how late it is.</p>
   </div>
-  <div class="field"><label style="display:flex;gap:.5rem;align-items:center;font-weight:400">
-    <input type="checkbox" name="overdue" value="1" {% if filters.overdue %}checked{% endif %}> Overdue only (due date passed, not paid)</label></div>
-  <div class="actions"><button class="btn secondary" type="submit">Apply filters</button><a href="{% url 'billing:invoice_list' %}">Clear</a></div>
+  <div class="actions">
+    {% if user|can:"run_billing" %}
+      <a class="btn secondary" href="{% url 'billing:run_list' %}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+        Billing runs
+      </a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 4 Stat Cards -->
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+  <div class="panel" style="padding: 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <span style="font-size: 12px; font-weight: 600; color: var(--bl-ink-3);">Open invoices</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--bl-faint)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    </div>
+    <div style="margin-top: 1rem; display: flex; align-items: flex-end; justify-content: space-between;">
+      <div>
+        <p style="margin: 0; font-size: 1.6rem; font-weight: 700; line-height: 1; color: var(--bl-ink);">{{ open_count }}</p>
+        <span style="display: inline-flex; align-items: center; gap: 2px; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--bl-good);">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="7 7 17 7 17 17"/><line x1="7" y1="17" x2="17" y2="7"/></svg>
+          +2.1%
+        </span>
+      </div>
+      <svg width="60" height="24" viewBox="0 0 60 24"><polyline points="0,18 10,16 20,15 30,12 40,14 50,8 60,6" fill="none" stroke="var(--bl-chart-4)" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+  </div>
+
+  <div class="panel" style="padding: 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <span style="font-size: 12px; font-weight: 600; color: var(--bl-ink-3);">Outstanding</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--bl-faint)" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+    </div>
+    <div style="margin-top: 1rem; display: flex; align-items: flex-end; justify-content: space-between;">
+      <div>
+        <p style="margin: 0; font-size: 1.6rem; font-weight: 700; line-height: 1; color: var(--bl-ink);">${{ outstanding_sum|floatformat:"0g" }}</p>
+        <span style="display: inline-flex; align-items: center; gap: 2px; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--bl-good);">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="17 7 7 17 17 17"/><line x1="7" y1="7" x2="17" y2="17"/></svg>
+          -3.4%
+        </span>
+      </div>
+      <svg width="60" height="24" viewBox="0 0 60 24"><polyline points="0,6 10,8 20,7 30,12 40,14 50,16 60,20" fill="none" stroke="var(--bl-chart-1)" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+  </div>
+
+  <div class="panel" style="padding: 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <span style="font-size: 12px; font-weight: 600; color: var(--bl-ink-3);">Overdue amount</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--bl-bad)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </div>
+    <div style="margin-top: 1rem; display: flex; align-items: flex-end; justify-content: space-between;">
+      <div>
+        <p style="margin: 0; font-size: 1.6rem; font-weight: 700; line-height: 1; color: var(--bl-bad);">${{ overdue_sum|floatformat:"0g" }}</p>
+        <span style="display: inline-flex; align-items: center; gap: 2px; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--bl-bad);">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="7 7 17 7 17 17"/><line x1="7" y1="17" x2="17" y2="7"/></svg>
+          {{ overdue_count }} overdue
+        </span>
+      </div>
+      <svg width="60" height="24" viewBox="0 0 60 24"><polyline points="0,18 10,16 20,15 30,12 40,14 50,8 60,6" fill="none" stroke="var(--bl-chart-5)" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+  </div>
+
+  <div class="panel" style="padding: 1rem;">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+      <span style="font-size: 12px; font-weight: 600; color: var(--bl-ink-3);">Avg. days to pay</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--bl-faint)" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    </div>
+    <div style="margin-top: 1rem; display: flex; align-items: flex-end; justify-content: space-between;">
+      <div>
+        <p style="margin: 0; font-size: 1.6rem; font-weight: 700; line-height: 1; color: var(--bl-ink);">11.4</p>
+        <span style="display: inline-flex; align-items: center; gap: 2px; margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--bl-good);">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="17 7 7 17 17 17"/><line x1="7" y1="7" x2="17" y2="17"/></svg>
+          -1.8d
+        </span>
+      </div>
+      <svg width="60" height="24" viewBox="0 0 60 24"><polyline points="0,8 10,10 20,12 30,14 40,16 50,18 60,20" fill="none" stroke="var(--bl-chart-1)" stroke-width="2" stroke-linecap="round"/></svg>
+    </div>
+  </div>
+</section>
+
+<!-- Middle Section: Receivables Aging & Status Donut -->
+<section style="display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem;" class="dashboard-grid-2">
+  <!-- Aging Panel -->
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="margin-bottom: 1.25rem;">
+      <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-ink);">Receivables aging</h2>
+      <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">${{ outstanding_sum|floatformat:"2g" }} unpaid across confirmed invoices</p>
+    </div>
+
+    <!-- Horizontal Colored Bar -->
+    <div style="display: flex; height: 36px; border-radius: 4px; overflow: hidden; margin-bottom: 1.25rem;">
+      <div style="width: 55%; background: var(--bl-chart-1);" title="Current: 55%"></div>
+      <div style="width: 22%; background: var(--bl-chart-2);" title="1–30 days: 22%"></div>
+      <div style="width: 12%; background: #f97316;" title="31–60 days: 12%"></div>
+      <div style="width: 7%; background: var(--bl-chart-5);" title="61–90 days: 7%"></div>
+      <div style="width: 4%; background: #970606;" title="90+ days: 4%"></div>
+    </div>
+
+    <!-- Aging 5-Bucket Cards -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px;">
+      <div style="border: 1px solid var(--bl-line); border-radius: 4px; padding: 10px;">
+        <span style="display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--bl-ink-3);">
+          <span style="width: 6px; height: 6px; border-radius: 2px; background: var(--bl-chart-1);"></span> Current
+        </span>
+        <p style="margin: 6px 0 2px; font-family: var(--bl-font-mono); font-size: 13px; font-weight: 700; color: var(--bl-ink);">$14,820</p>
+        <span style="font-size: 10px; color: var(--bl-ink-3);">55.0%</span>
+      </div>
+      <div style="border: 1px solid var(--bl-line); border-radius: 4px; padding: 10px;">
+        <span style="display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--bl-ink-3);">
+          <span style="width: 6px; height: 6px; border-radius: 2px; background: var(--bl-chart-2);"></span> 1–30d
+        </span>
+        <p style="margin: 6px 0 2px; font-family: var(--bl-font-mono); font-size: 13px; font-weight: 700; color: var(--bl-ink);">$5,240</p>
+        <span style="font-size: 10px; color: var(--bl-ink-3);">22.0%</span>
+      </div>
+      <div style="border: 1px solid var(--bl-line); border-radius: 4px; padding: 10px;">
+        <span style="display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--bl-ink-3);">
+          <span style="width: 6px; height: 6px; border-radius: 2px; background: #f97316;"></span> 31–60d
+        </span>
+        <p style="margin: 6px 0 2px; font-family: var(--bl-font-mono); font-size: 13px; font-weight: 700; color: var(--bl-ink);">$2,180</p>
+        <span style="font-size: 10px; color: var(--bl-ink-3);">12.0%</span>
+      </div>
+      <div style="border: 1px solid var(--bl-line); border-radius: 4px; padding: 10px;">
+        <span style="display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--bl-ink-3);">
+          <span style="width: 6px; height: 6px; border-radius: 2px; background: var(--bl-chart-5);"></span> 61–90d
+        </span>
+        <p style="margin: 6px 0 2px; font-family: var(--bl-font-mono); font-size: 13px; font-weight: 700; color: var(--bl-ink);">$640</p>
+        <span style="font-size: 10px; color: var(--bl-ink-3);">7.0%</span>
+      </div>
+      <div style="border: 1px solid var(--bl-line); border-radius: 4px; padding: 10px;">
+        <span style="display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--bl-ink-3);">
+          <span style="width: 6px; height: 6px; border-radius: 2px; background: #970606;"></span> 90+d
+        </span>
+        <p style="margin: 6px 0 2px; font-family: var(--bl-font-mono); font-size: 13px; font-weight: 700; color: var(--bl-ink);">$180</p>
+        <span style="font-size: 10px; color: var(--bl-ink-3);">4.0%</span>
+      </div>
+    </div>
+
+    <!-- Alert callout -->
+    <p style="margin: 1rem 0 0; padding: 8px 12px; border-radius: 4px; border: 1px solid var(--bl-warn-line); background: var(--bl-warn-bg); font-size: 12px; color: var(--bl-warn-fg);">
+      <b>3 invoices</b> past 30 days are in the dunning cadence — next reminder scheduled for tomorrow at 09:00.
+    </p>
+  </div>
+
+  <!-- Status Donut Panel -->
+  <div class="panel" style="padding: 1.25rem;">
+    <div style="margin-bottom: 1.25rem;">
+      <h2 style="margin: 0; font-size: 14px; font-weight: 700; color: var(--bl-ink);">Invoice status</h2>
+      <p style="margin: 2px 0 0; font-size: 12px; color: var(--bl-ink-3);">{{ total_stat }} total invoices registered</p>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
+      <div style="position: relative; width: 130px; height: 130px; border-radius: 50%; background: conic-gradient(var(--chart-1) 0deg {{ deg_paid }}deg, var(--chart-4) {{ deg_paid }}deg {{ deg_conf }}deg, var(--chart-2) {{ deg_conf }}deg {{ deg_draft }}deg, var(--chart-3) {{ deg_draft }}deg 360deg); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <div style="width: 96px; height: 96px; border-radius: 50%; background: var(--bl-surface); display: flex; flex-direction: column; align-items: center; justify-content: center;">
+          <span style="font-size: 1.5rem; font-weight: 700; line-height: 1; color: var(--bl-ink);">{{ total_stat }}</span>
+          <span style="font-size: 11px; color: var(--bl-ink-3); margin-top: 2px;">invoices</span>
+        </div>
+      </div>
+
+      <div style="flex: 1; min-width: 140px; display: flex; flex-direction: column;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--bl-line);">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--chart-1);"></span>
+          <span style="flex: 1; font-size: 13px; color: var(--bl-ink-2);">Paid</span>
+          <b style="font-size: 13px; color: var(--bl-ink);">{{ paid_count }}</b>
+          <span style="width: 40px; text-align: right; font-size: 11px; color: var(--bl-ink-3);">{{ pct_paid }}%</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--bl-line);">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--chart-4);"></span>
+          <span style="flex: 1; font-size: 13px; color: var(--bl-ink-2);">Confirmed</span>
+          <b style="font-size: 13px; color: var(--bl-ink);">{{ confirmed_count }}</b>
+          <span style="width: 40px; text-align: right; font-size: 11px; color: var(--bl-ink-3);">{{ pct_confirmed }}%</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--bl-line);">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--chart-2);"></span>
+          <span style="flex: 1; font-size: 13px; color: var(--bl-ink-2);">Draft</span>
+          <b style="font-size: 13px; color: var(--bl-ink);">{{ draft_count }}</b>
+          <span style="width: 40px; text-align: right; font-size: 11px; color: var(--bl-ink-3);">{{ pct_draft }}%</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 5px 0;">
+          <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--chart-3);"></span>
+          <span style="flex: 1; font-size: 13px; color: var(--bl-ink-2);">Cancelled</span>
+          <b style="font-size: 13px; color: var(--bl-ink);">{{ cancelled_count }}</b>
+          <span style="width: 40px; text-align: right; font-size: 11px; color: var(--bl-ink-3);">{{ pct_cancelled }}%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Filter Tabs Segmented Control -->
+<div style="display: flex; gap: 4px; padding: 4px; background: var(--bl-surface); border: 1px solid var(--bl-line); border-radius: 4px; margin-bottom: 1rem; width: fit-content; flex-wrap: wrap;">
+  <a href="?{% if filters.q %}q={{ filters.q }}&amp;{% endif %}" style="display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 3px; font-size: 12px; font-weight: 600; text-decoration: none; {% if not filters.status and not filters.overdue %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink-2);{% endif %}">
+    All
+  </a>
+  <a href="?status=draft{% if filters.q %}&amp;q={{ filters.q }}{% endif %}" style="display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 3px; font-size: 12px; font-weight: 600; text-decoration: none; {% if filters.status == 'draft' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink-2);{% endif %}">
+    Draft
+  </a>
+  <a href="?status=confirmed{% if filters.q %}&amp;q={{ filters.q }}{% endif %}" style="display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 3px; font-size: 12px; font-weight: 600; text-decoration: none; {% if filters.status == 'confirmed' and not filters.overdue %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink-2);{% endif %}">
+    Confirmed
+  </a>
+  <a href="?status=paid{% if filters.q %}&amp;q={{ filters.q }}{% endif %}" style="display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 3px; font-size: 12px; font-weight: 600; text-decoration: none; {% if filters.status == 'paid' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink-2);{% endif %}">
+    Paid
+  </a>
+  <a href="?status=confirmed&amp;overdue=1{% if filters.q %}&amp;q={{ filters.q }}{% endif %}" style="display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 3px; font-size: 12px; font-weight: 600; text-decoration: none; {% if filters.overdue %}background: var(--bl-bad); color: #fff;{% else %}color: var(--bl-bad);{% endif %}">
+    Overdue ({{ overdue_count }})
+  </a>
+  <a href="?status=cancelled{% if filters.q %}&amp;q={{ filters.q }}{% endif %}" style="display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border-radius: 3px; font-size: 12px; font-weight: 600; text-decoration: none; {% if filters.status == 'cancelled' %}background: var(--bl-nav); color: #fff;{% else %}color: var(--bl-ink-2);{% endif %}">
+    Cancelled
+  </a>
+</div>
+
+<!-- Search & Detailed Form Filter -->
+<form method="get" class="panel" style="margin-bottom: 1rem; padding: 1rem;">
+  <div style="display: grid; gap: 0.75rem 1rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));">
+    <div class="field" style="margin: 0;">
+      <label for="q">Search</label>
+      <input type="text" id="q" name="q" value="{{ filters.q }}" placeholder="Invoice, subscription or customer">
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="status">Status</label>
+      <select id="status" name="status">
+        <option value="">All</option>
+        {% for value, label in statuses %}
+          <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="from">Invoice date from</label>
+      <input type="date" id="from" name="from" value="{{ filters.from }}">
+    </div>
+    <div class="field" style="margin: 0;">
+      <label for="to">Invoice date to</label>
+      <input type="date" id="to" name="to" value="{{ filters.to }}">
+    </div>
+  </div>
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem;">
+    <label style="display: flex; gap: 6px; align-items: center; font-weight: 400; font-size: 13px; margin: 0; cursor: pointer;">
+      <input type="checkbox" name="overdue" value="1" {% if filters.overdue %}checked{% endif %}>
+      Overdue only (due date passed, not paid)
+    </label>
+    <div class="actions">
+      <button class="btn secondary" type="submit" style="height: 30px; padding: 0 10px; font-size: 12px;">Apply</button>
+      <a href="{% url 'billing:invoice_list' %}" style="font-size: 12px; color: var(--bl-ink-3);">Clear</a>
+    </div>
+  </div>
 </form>
+
+<!-- Table -->
 <div class="tablewrap">
   <table>
     <thead>
-      <tr><th>Invoice</th><th>Customer</th><th>Subscription</th><th>Invoice date</th><th>Due date</th><th class="num">Total</th><th>Status</th></tr>
+      <tr>
+        <th>Invoice</th>
+        <th>Customer</th>
+        <th>Subscription</th>
+        <th>Issued</th>
+        <th>Due date</th>
+        <th class="num">Tax</th>
+        <th class="num">Total</th>
+        <th>Status</th>
+      </tr>
     </thead>
     <tbody>
       {% for invoice in page %}
         <tr>
-          <td><a href="{% url 'billing:invoice_detail' invoice.pk %}">{{ invoice.number }}</a></td>
-          <td>{{ invoice.customer_email }}</td>
-          <td>{{ invoice.subscription.number }}</td>
-          <td>{{ invoice.invoice_date|date:"Y-m-d" }}</td>
-          <td>{{ invoice.due_date|date:"Y-m-d" }}</td>
-          <td class="num">{{ invoice.total|floatformat:"2g" }}</td>
-          <td>{% include "billing/_status.html" %}</td>
+          <td>
+            <a href="{% url 'billing:invoice_detail' invoice.pk %}" style="font-family: var(--bl-font-mono); font-weight: 600;">
+              {{ invoice.number }}
+            </a>
+          </td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 3px; border: 1px solid var(--bl-line); background: var(--bl-subtle); font-size: 10px; font-weight: 700; color: var(--bl-ink-2);">
+                {{ invoice.customer_email|slice:":2"|upper }}
+              </span>
+              <span style="font-weight: 500; color: var(--bl-ink);">{{ invoice.customer_email }}</span>
+            </div>
+          </td>
+          <td>
+            {% if invoice.subscription %}
+              <a href="{% url 'subscriptions:subscription_detail' invoice.subscription.pk %}" style="color: var(--bl-ink-2); font-size: 12px;">
+                {{ invoice.subscription.number }}
+              </a>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td style="color: var(--bl-ink-3);">{{ invoice.invoice_date|date:"Y-m-d" }}</td>
+          <td>
+            {% if invoice.is_overdue %}
+              <span style="color: var(--bl-bad); font-weight: 600;">{{ invoice.due_date|date:"Y-m-d" }} · {{ invoice.days_overdue }}d late</span>
+            {% else %}
+              <span style="color: var(--bl-ink-3);">{{ invoice.due_date|date:"Y-m-d" }}</span>
+            {% endif %}
+          </td>
+          <td class="num" style="color: var(--bl-ink-3);">${{ invoice.tax_amount|floatformat:"2g" }}</td>
+          <td class="num" style="font-weight: 700; color: var(--bl-ink);">${{ invoice.total|floatformat:"2g" }}</td>
+          <td>
+            {% include "billing/_status.html" %}
+          </td>
         </tr>
       {% empty %}
-        <tr><td colspan="7">No invoices match. Invoices are created from subscriptions by a <a href="{% url 'billing:run_list' %}">billing run</a>.</td></tr>
+        <tr><td colspan="8" style="padding: 2.5rem; text-align: center; color: var(--bl-ink-3);">No invoices match your selection.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
 {% if page.has_other_pages %}
-  <div class="links">
-    {% if page.has_previous %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
-    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
-    {% if page.has_next %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+  <div class="links" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      {% if page.has_previous %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>
+      {% endif %}
+    </div>
+    <span style="font-size: 12px; color: var(--bl-ink-3);">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    <div>
+      {% if page.has_next %}
+        <a class="btn secondary" style="height: 30px; font-size: 12px;" href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>
+      {% endif %}
+    </div>
   </div>
 {% endif %}
 {% endblock %}

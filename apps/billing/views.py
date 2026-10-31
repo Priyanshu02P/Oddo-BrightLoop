@@ -48,6 +48,31 @@ def invoice_list(request):
         date_from=date_from,
         date_to=date_to,
     )
+    from decimal import Decimal
+    from django.db.models import Sum
+
+    today = timezone.localdate()
+    all_invoices = Invoice.objects.all()
+    open_count = all_invoices.filter(status__in=[Invoice.Status.DRAFT, Invoice.Status.CONFIRMED]).count()
+    paid_count = all_invoices.filter(status=Invoice.Status.PAID).count()
+    confirmed_count = all_invoices.filter(status=Invoice.Status.CONFIRMED).count()
+    draft_count = all_invoices.filter(status=Invoice.Status.DRAFT).count()
+    cancelled_count = all_invoices.filter(status=Invoice.Status.CANCELLED).count()
+    overdue_count = all_invoices.filter(status=Invoice.Status.CONFIRMED, due_date__lt=today).count()
+
+    outstanding_sum = all_invoices.filter(status=Invoice.Status.CONFIRMED).aggregate(t=Sum("total"))["t"] or Decimal("0.00")
+    overdue_sum = all_invoices.filter(status=Invoice.Status.CONFIRMED, due_date__lt=today).aggregate(t=Sum("total"))["t"] or Decimal("0.00")
+
+    total_stat = (paid_count + confirmed_count + draft_count + cancelled_count) or 1
+    pct_paid = round((paid_count / total_stat) * 100, 1)
+    pct_confirmed = round((confirmed_count / total_stat) * 100, 1)
+    pct_draft = round((draft_count / total_stat) * 100, 1)
+    pct_cancelled = round((cancelled_count / total_stat) * 100, 1)
+
+    deg_paid = int(round(pct_paid * 3.6))
+    deg_conf = deg_paid + int(round(pct_confirmed * 3.6))
+    deg_draft = deg_conf + int(round(pct_draft * 3.6))
+
     context = {
         "page": Paginator(invoices, 25).get_page(params.get("page")),
         "statuses": Invoice.Status.choices,
@@ -59,6 +84,22 @@ def invoice_list(request):
             "to": date_to.isoformat() if date_to else "",
         },
         "querystring": _without_page(params),
+        "open_count": open_count,
+        "paid_count": paid_count,
+        "confirmed_count": confirmed_count,
+        "draft_count": draft_count,
+        "cancelled_count": cancelled_count,
+        "overdue_count": overdue_count,
+        "outstanding_sum": outstanding_sum,
+        "overdue_sum": overdue_sum,
+        "total_stat": total_stat,
+        "pct_paid": pct_paid,
+        "pct_confirmed": pct_confirmed,
+        "pct_draft": pct_draft,
+        "pct_cancelled": pct_cancelled,
+        "deg_paid": deg_paid,
+        "deg_conf": deg_conf,
+        "deg_draft": deg_draft,
     }
     return render(request, "billing/invoice_list.html", context)
 
@@ -112,8 +153,27 @@ def invoice_print(request, pk):
 @require_permission(Permission.RUN_BILLING)
 def run_list(request):
     page = Paginator(selectors.list_runs(), 25).get_page(request.GET.get("page"))
+    running = selectors.running_run()
+    last_run = BillingRun.objects.order_by("-started_at").first()
+    last_run_counts = selectors.run_with_counts(last_run.pk) if last_run else None
+
+    from apps.billing.models import BillingRunResult
+    failures = (
+        BillingRunResult.objects.filter(outcome="failed")
+        .select_related("subscription__customer__user", "run")
+        .order_by("-created_at")[:4]
+    )
+
     return render(
-        request, "billing/run_list.html", {"page": page, "running": selectors.running_run()}
+        request,
+        "billing/run_list.html",
+        {
+            "page": page,
+            "running": running,
+            "last_run": last_run,
+            "last_run_counts": last_run_counts,
+            "failures": failures,
+        },
     )
 
 
