@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}{% if plan %}Edit {{ plan.name }}{% else %}Create plan{% endif %} · Brightloop{% endblock %}
+{% block content %}
+<style>
+  .grid { display: grid; gap: 0 1.25rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+  fieldset { border: 0; padding: 0; margin: 0 0 1.25rem; }
+  legend { font-weight: 700; font-size: 1.1rem; margin-bottom: .6rem; }
+  .option { margin-bottom: .75rem; }
+  .option label { display: flex; align-items: center; gap: .5rem; margin: 0; }
+  .option input { width: 1.1rem; height: 1.1rem; }
+  .option .help { margin: 0 0 0 1.6rem; }
+</style>
+<p class="help" style="margin:0 0 .5rem">
+  <a href="{% url 'plans:plan_list' %}">Plans</a>
+  {% if plan %}/ <a href="{% url 'plans:plan_detail' plan.pk %}">{{ plan.name }}</a>{% endif %}
+</p>
+<h1>{% if plan %}Edit plan{% else %}Create plan{% endif %}</h1>
+<form method="post" novalidate class="panel">{% csrf_token %}
+  {% for error in form.non_field_errors %}<div class="alert error" role="alert">{{ error }}</div>{% endfor %}
+  <fieldset>
+    <legend>Plan details</legend>
+    <div class="grid">
+      {% include "accounts/_field.html" with field=form.name %}
+      {% include "accounts/_field.html" with field=form.price %}
+      {% include "accounts/_field.html" with field=form.billing_period %}
+      {% include "accounts/_field.html" with field=form.minimum_quantity %}
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Availability for new subscriptions</legend>
+    <p class="help">A plan can be selected for a new subscription only when its start date falls within this window, both dates included. Existing subscriptions may keep using the plan after the window ends.</p>
+    <div class="grid">
+      {% include "accounts/_field.html" with field=form.availability_start_date %}
+      {% include "accounts/_field.html" with field=form.availability_end_date %}
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Renewal</legend>
+    <div class="grid">
+      {% include "accounts/_field.html" with field=form.renewal_mode %}
+    </div>
+    <p class="help">Renewal mode sets how a renewal starts. Customers and Staff can renew only if the Renew option below is also enabled.</p>
+  </fieldset>
+  <fieldset>
+    <legend>Lifecycle options</legend>
+    <p class="help">These settings control which actions are allowed on subscriptions that use this plan. Each option is independent.</p>
+    <div class="option">
+      <label for="{{ form.auto_close_at_end_date.id_for_label }}">{{ form.auto_close_at_end_date }} {{ form.auto_close_at_end_date.label }}</label>
+      <p class="help">Subscriptions are closed automatically after the availability end date passes.</p>
+      {{ form.auto_close_at_end_date.errors }}
+    </div>
+    <div class="option">
+      <label for="{{ form.allow_close_early.id_for_label }}">{{ form.allow_close_early }} {{ form.allow_close_early.label }}</label>
+      <p class="help">A subscription may be closed before its end.</p>
+      {{ form.allow_close_early.errors }}
+    </div>
+    <div class="option">
+      <label for="{{ form.allow_pause.id_for_label }}">{{ form.allow_pause }} {{ form.allow_pause.label }}</label>
+      <p class="help">A subscription may be paused; paused subscriptions are not billed.</p>
+      {{ form.allow_pause.errors }}
+    </div>
+    <div class="option">
+      <label for="{{ form.allow_renew.id_for_label }}">{{ form.allow_renew }} {{ form.allow_renew.label }}</label>
+      <p class="help">A subscription may be renewed.</p>
+      {{ form.allow_renew.errors }}
+    </div>
+  </fieldset>
+  {% if plan %}<p class="help">Saving changes the plan only. Existing subscriptions and invoices are not rewritten.</p>{% endif %}
+  <div class="actions">
+    <button class="btn" type="submit">Save plan</button>
+    <a href="{% if plan %}{% url 'plans:plan_detail' plan.pk %}{% else %}{% url 'plans:plan_list' %}{% endif %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

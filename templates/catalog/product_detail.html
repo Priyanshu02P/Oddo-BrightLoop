@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name }} · Product Catalog · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'catalog:product_list' %}">Product Catalog</a> / {{ product.name }}</p>
+<div class="head">
+  <h1>{{ product.name }}
+    {% if product.is_archived %}<span class="badge archived">Archived</span>
+    {% else %}<span class="badge active">Active</span>{% endif %}
+  </h1>
+  <div class="actions">
+    <a class="btn secondary" href="{% url 'catalog:product_edit' product.pk %}">Edit product</a>
+    {% if not product.is_archived %}
+      <a class="btn danger" href="{% url 'catalog:product_archive' product.pk %}">Archive product</a>
+    {% endif %}
+  </div>
+</div>
+{% if product.is_archived %}
+  <div class="alert warning">This product is archived and is not offered for new subscription lines.</div>
+{% endif %}
+<div class="panel">
+  <table>
+    <tbody>
+      <tr><th scope="row">Type</th><td>{{ product.get_type_display }}</td></tr>
+      <tr><th scope="row">Sales price (base, before tax)</th><td>{{ product.sales_price|floatformat:"2g" }}</td></tr>
+      <tr><th scope="row">Cost price</th><td>{{ product.cost_price|floatformat:"2g" }}</td></tr>
+      <tr><th scope="row">Associated tax</th><td>{{ product.tax }} <span class="help">— added on top of the price</span></td></tr>
+      {% if product.notes %}<tr><th scope="row">Notes</th><td>{{ product.notes|linebreaksbr }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+<h2>Variants</h2>
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr><th>Dimension</th><th>Value</th><th class="num">Price adjustment</th><th class="num">Adjusted price before tax</th></tr>
+    </thead>
+    <tbody>
+      {% for variant in product.variants.all %}
+        <tr>
+          <td>{{ variant.dimension }}</td>
+          <td>{{ variant.value }}</td>
+          <td class="num">+{{ variant.price_adjustment|floatformat:"2g" }}</td>
+          <td class="num">{{ variant.adjusted_sales_price|floatformat:"2g" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">No variants are configured for this product.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="help">Each adjusted price is the base sales price plus that single value's adjustment.</p>
+{% endblock %}

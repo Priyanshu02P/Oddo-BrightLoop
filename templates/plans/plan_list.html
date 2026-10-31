@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Plans · Brightloop{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Plans</h1>
+  <a class="btn" href="{% url 'plans:plan_create' %}">Create plan</a>
+</div>
+<p class="help">A plan can be selected for a new subscription only on a start date inside its availability window.</p>
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Plan name</th><th class="num">Price</th><th>Billing period</th><th class="num">Minimum quantity</th>
+        <th>Availability window</th><th>Renewal mode</th><th>Lifecycle options</th><th>Status</th>
+        <th><span class="help">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for plan in page %}
+        <tr>
+          <td><a href="{% url 'plans:plan_detail' plan.pk %}">{{ plan.name }}</a></td>
+          <td class="num">{{ plan.price|floatformat:"2g" }}</td>
+          <td>{{ plan.get_billing_period_display }}</td>
+          <td class="num">{{ plan.minimum_quantity }}</td>
+          <td>{{ plan.availability_start_date|date:"Y-m-d" }} to {{ plan.availability_end_date|date:"Y-m-d" }}</td>
+          <td>{{ plan.get_renewal_mode_display }}</td>
+          <td>{{ plan.enabled_lifecycle_options|join:", "|default:"None enabled" }}</td>
+          <td><span class="badge {{ plan.availability }}">{{ plan.availability_label }}</span></td>
+          <td class="actions"><a href="{% url 'plans:plan_edit' plan.pk %}">Edit</a></td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="9">No plans exist yet. <a href="{% url 'plans:plan_create' %}">Create plan</a> to get started.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

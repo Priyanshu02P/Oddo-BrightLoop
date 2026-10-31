@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Product Catalog · Brightloop{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Product Catalog</h1>
+  <a class="btn" href="{% url 'catalog:product_create' %}">Create product</a>
+</div>
+<nav class="links" aria-label="Filter by status" style="margin:0 0 1rem">
+  {% if status %}<a href="?">All</a>{% else %}<strong aria-current="page">All</strong>{% endif %}
+  {% if status == "active" %}<strong aria-current="page">Active</strong>{% else %}<a href="?status=active">Active</a>{% endif %}
+  {% if status == "archived" %}<strong aria-current="page">Archived</strong>{% else %}<a href="?status=archived">Archived</a>{% endif %}
+</nav>
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Product name</th><th>Type</th><th class="num">Sales price</th><th class="num">Cost price</th>
+        <th>Tax</th><th class="num">Variants</th><th>Status</th><th><span class="help">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for product in page %}
+        <tr>
+          <td><a href="{% url 'catalog:product_detail' product.pk %}">{{ product.name }}</a></td>
+          <td>{{ product.get_type_display }}</td>
+          <td class="num">{{ product.sales_price|floatformat:"2g" }}</td>
+          <td class="num">{{ product.cost_price|floatformat:"2g" }}</td>
+          <td>{{ product.tax }}</td>
+          <td class="num">{{ product.variant_count }}</td>
+          <td>
+            {% if product.is_archived %}<span class="badge archived">Archived</span>
+            {% else %}<span class="badge active">Active</span>{% endif %}
+          </td>
+          <td class="actions">
+            <a href="{% url 'catalog:product_edit' product.pk %}">Edit</a>
+            {% if not product.is_archived %}
+              <a href="{% url 'catalog:product_archive' product.pk %}">Archive</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="8">
+            {% if status %}No {{ status }} products.
+            {% else %}No products exist yet. <a href="{% url 'catalog:product_create' %}">Create product</a> to start the catalog.{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?{% if status %}status={{ status }}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?{% if status %}status={{ status }}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

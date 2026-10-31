@@ -1,0 +1,119 @@
+{% load rbac %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Brightloop{% endblock %}</title>
+  <style>
+    :root {
+      --ink: #10243e; --ground: #eef1f5; --surface: #fff; --line: #d3d9e2;
+      --muted: #55627a; --teal: #0b7a75; --teal-dark: #085f5b;
+      --amber: #a15c07; --error: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--ground); color: var(--ink);
+      font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    a { color: var(--teal-dark); }
+    :focus-visible { outline: 3px solid var(--teal); outline-offset: 2px; }
+    .topbar { background: var(--ink); color: #fff; }
+    .topbar-inner { max-width: 62rem; margin: 0 auto; padding: .75rem 1.25rem;
+      display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.5rem; }
+    .brand { display: inline-flex; align-items: center; gap: .6rem; color: #fff;
+      font-weight: 700; font-size: 1.15rem; text-decoration: none; }
+    .loop { width: 1.35rem; height: 1.35rem; border-radius: 50%;
+      border: 3px solid #4fd1c5; border-right-color: transparent; transform: rotate(-35deg); }
+    .topbar nav { display: flex; gap: 1rem; flex: 1; }
+    .topbar nav a { color: #dbe4f0; text-decoration: none; padding: .25rem 0; }
+    .topbar nav a:hover { color: #fff; text-decoration: underline; }
+    .who { display: flex; align-items: center; gap: .75rem; font-size: .9rem; color: #dbe4f0; }
+    .who form { margin: 0; }
+    .linklike { background: none; border: 0; padding: 0; color: #fff; font: inherit;
+      text-decoration: underline; cursor: pointer; }
+    main { max-width: 62rem; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
+    main.narrow { max-width: 27rem; padding-top: 3rem; }
+    h1 { font-size: 1.6rem; line-height: 1.2; margin: 0 0 1rem; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1.5rem; }
+    .field { margin-bottom: 1.1rem; }
+    label { display: block; font-weight: 600; margin-bottom: .3rem; }
+    input[type=email], input[type=password], input[type=text], input[type=number], input[type=date], select, textarea {
+      width: 100%; padding: .6rem .7rem;
+      border: 1px solid #8a96aa; border-radius: 4px; font: inherit; background: #fff; color: var(--ink); }
+    .btn { display: inline-block; background: var(--teal); color: #fff; border: 0; border-radius: 4px;
+      padding: .65rem 1.1rem; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+    .btn:hover { background: var(--teal-dark); }
+    .btn:disabled { opacity: .6; cursor: progress; }
+    .errorlist { list-style: none; margin: .3rem 0 0; padding: 0; color: var(--error); font-size: .92rem; }
+    .alert { border-left: 4px solid var(--teal); background: #fff; padding: .7rem 1rem;
+      margin-bottom: 1rem; border-radius: 0 4px 4px 0; border-top: 1px solid var(--line);
+      border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .alert.error { border-left-color: var(--error); }
+    .alert.warning { border-left-color: var(--amber); }
+    .policy { color: var(--muted); font-size: .9rem; margin: .4rem 0 0; padding-left: 1.2rem; }
+    .help { color: var(--muted); font-size: .9rem; }
+    .links { margin-top: 1.25rem; display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: .95rem; }
+    table { width: 100%; border-collapse: collapse; background: var(--surface); }
+    th, td { text-align: left; padding: .6rem .75rem; border-bottom: 1px solid var(--line); }
+    th { font-size: .9rem; color: var(--muted); }
+    .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .badge { display: inline-block; padding: .1rem .55rem; border-radius: 999px; font-size: .85rem;
+      font-weight: 600; border: 1px solid currentColor; }
+    .badge.active { color: #146c43; }
+    .badge.archived { color: var(--muted); }
+    .badge.available { color: #146c43; }
+    .badge.ended { color: var(--muted); }
+    .badge.upcoming { color: var(--amber); }
+    .btn.secondary { background: #fff; color: var(--ink); border: 1px solid #8a96aa; }
+    .btn.secondary:hover { background: var(--ground); }
+    .btn.danger { background: var(--error); }
+    .btn.danger:hover { background: #8f1c13; }
+    .actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+    @media (prefers-reduced-motion: no-preference) { .btn { transition: background .15s; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="{% url 'accounts:home' %}"><span class="loop" aria-hidden="true"></span>Brightloop</a>
+      {% if user.is_authenticated %}
+        <nav aria-label="Main">
+          {% if user|can:"view_dashboard" %}
+            <a href="{% url 'accounts:internal_home' %}">Dashboard</a>
+          {% endif %}
+          {% if user|can:"manage_catalog" %}
+            <a href="{% url 'catalog:product_list' %}">Catalog</a>
+            <a href="{% url 'plans:plan_list' %}">Plans</a>
+          {% endif %}
+          {% if user|can:"manage_users" %}
+            <a href="{% url 'accounts:user_management' %}">User Management</a>
+          {% endif %}
+          {% if user|can:"access_customer_portal" %}
+            <a href="{% url 'accounts:portal_home' %}">Overview</a>
+            <a href="{% url 'accounts:portal_account' %}">Account / security</a>
+          {% endif %}
+        </nav>
+        <div class="who">
+          <span>{{ user.email }} ({{ user.get_role_display }})</span>
+          <form method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}
+            <button class="linklike" type="submit">Sign out</button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  </header>
+  <main class="{% block main_class %}{% endblock %}">
+    {% for message in messages %}
+      <div class="alert {{ message.tags }}" role="status">{{ message }}</div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    document.addEventListener("submit", function (event) {
+      var button = event.target.querySelector("button[type=submit]");
+      if (button) { setTimeout(function () { button.disabled = true; }, 0); }
+    });
+  </script>
+</body>
+</html>
