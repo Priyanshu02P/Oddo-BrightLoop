@@ -92,7 +92,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 # PostgreSQL is the target database (DATABASE_URL). SQLite is only the local
 # fallback when DATABASE_URL is not set.
 DATABASES = {
-    "default":  os.environ.get("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
+    "default":  env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
 }
 
 
