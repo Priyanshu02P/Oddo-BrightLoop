@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ invoice.number }} · My invoices · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'portal_invoices:invoice_list' %}">My invoices</a> / {{ invoice.number }}</p>
+<div class="head">
+  <h1>{{ invoice.number }} {% include "billing/_status.html" %}</h1>
+  <a class="btn secondary" href="{% url 'portal_invoices:invoice_print' invoice.pk %}">Print / PDF</a>
+</div>
+{% if invoice.status == "cancelled" %}
+  <div class="alert warning">This invoice was cancelled and does not need to be paid.</div>
+{% endif %}
+{% include "billing/_summary.html" %}
+<h2 style="margin-top:1.5rem">Lines</h2>
+{% include "billing/_lines.html" %}
+{% endblock %}

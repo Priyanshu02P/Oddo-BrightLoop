@@ -1,0 +1,1 @@
+{% if run.status == "running" %}<span class="badge running">Running</span>{% elif run.failed %}<span class="badge warning">Completed with failures</span>{% else %}<span class="badge completed">Completed</span>{% endif %}

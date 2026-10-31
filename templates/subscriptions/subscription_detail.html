@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load rbac %}
 {% block title %}{{ subscription.number }} · Subscriptions · Brightloop{% endblock %}
 {% block content %}
 <p class="help" style="margin:0 0 .5rem"><a href="{% url 'subscriptions:subscription_list' %}">Subscriptions</a> / {{ subscription.number }}</p>
@@ -19,6 +20,25 @@
   {% if editable %}<a class="btn secondary" href="{% url 'subscriptions:line_add' subscription.pk %}">Add line</a>{% endif %}
 </div>
 {% include "subscriptions/_lines_table.html" %}
+<h2 style="margin-top:1.5rem">Invoices</h2>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Invoice</th><th>Billing period</th><th>Due date</th><th class="num">Total</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for invoice in subscription.invoices.all|dictsortreversed:"period_start" %}
+        <tr>
+          <td>{% if user|can:"manage_invoices" %}<a href="{% url 'billing:invoice_detail' invoice.pk %}">{{ invoice.number }}</a>{% else %}{{ invoice.number }}{% endif %}</td>
+          <td>{{ invoice.period_start|date:"Y-m-d" }} to {{ invoice.period_end|date:"Y-m-d" }}</td>
+          <td>{{ invoice.due_date|date:"Y-m-d" }}</td>
+          <td class="num">{{ invoice.total|floatformat:"2g" }}</td>
+          <td>{% include "billing/_status.html" %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">No invoices yet. They are created by billing runs once the subscription is active and due.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 <h2 style="margin-top:1.5rem">Activity history</h2>
 <div class="tablewrap">
   <table>

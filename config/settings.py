@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.plans",
     "apps.subscriptions",
+    "apps.billing",
 ]
 
 MIDDLEWARE = [
@@ -142,6 +143,12 @@ PLANS_AUTO_CLOSE_HANDLER = env("PLANS_AUTO_CLOSE_HANDLER", default="")
 # Quotation validity when a subscription is made without a template (M4 open
 # decision: the requirements only define validity days on templates).
 QUOTATION_DEFAULT_VALIDITY_DAYS = env.int("QUOTATION_DEFAULT_VALIDITY_DAYS", default=30)
+
+# Billing runs (M5, NFR-2). A run handles this many subscriptions per batch and
+# stops starting new ones once the time budget is spent, leaving the run open
+# for the next trigger. Keep the budget below the serverless function timeout.
+BILLING_BATCH_SIZE = env.int("BILLING_BATCH_SIZE", default=100)
+BILLING_TIME_BUDGET_SECONDS = env.int("BILLING_TIME_BUDGET_SECONDS", default=20)
 
 
 # Internationalization

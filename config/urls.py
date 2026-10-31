@@ -10,4 +10,6 @@ urlpatterns = [
     path("app/plans/", include("apps.plans.urls")),
     path("app/subscriptions/", include("apps.subscriptions.urls")),
     path("portal/subscriptions/", include("apps.subscriptions.portal_urls")),
+    path("app/billing/", include("apps.billing.urls")),
+    path("portal/invoices/", include("apps.billing.portal_urls")),
 ]

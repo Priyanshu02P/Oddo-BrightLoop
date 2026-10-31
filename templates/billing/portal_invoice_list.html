@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}My invoices · Brightloop{% endblock %}
+{% block content %}
+<h1>My invoices</h1>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Invoice</th><th>Invoice date</th><th>Due date</th><th class="num">Amount</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for invoice in page %}
+        <tr>
+          <td><a href="{% url 'portal_invoices:invoice_detail' invoice.pk %}">{{ invoice.number }}</a></td>
+          <td>{{ invoice.invoice_date|date:"Y-m-d" }}</td>
+          <td>{{ invoice.due_date|date:"Y-m-d" }}</td>
+          <td class="num">{{ invoice.total|floatformat:"2g" }}</td>
+          <td>{% include "billing/_status.html" %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">You have no invoices yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

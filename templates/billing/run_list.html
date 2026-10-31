@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Billing runs · Brightloop{% endblock %}
+{% block content %}
+<h1>Billing runs</h1>
+<div class="panel" style="margin-bottom:1.5rem">
+  {% if running %}
+    <p style="margin-top:0"><strong>Run #{{ running.pk }} is still open</strong> (started {{ running.started_at|date:"Y-m-d H:i" }} UTC). Running billing now continues it.</p>
+  {% else %}
+    <p style="margin-top:0">A billing run creates a <strong>draft invoice for every active subscription whose next billing date has arrived</strong>.
+      Paused subscriptions are skipped, and a period that already has an invoice (even a cancelled one) is never billed again.</p>
+  {% endif %}
+  <p class="help">Runs also start automatically every day. Large runs work in batches; if one stops at the time limit it is finished by the next run.</p>
+  <form method="post" action="{% url 'billing:run_start' %}">{% csrf_token %}
+    <button class="btn" type="submit">Run billing now</button>
+  </form>
+</div>
+<h2>History</h2>
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr><th>Run</th><th>Started</th><th>Trigger</th><th class="num">Processed</th><th class="num">Created</th><th class="num">Skipped</th><th class="num">Failed</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for run in page %}
+        <tr>
+          <td><a href="{% url 'billing:run_detail' run.pk %}">#{{ run.pk }}</a></td>
+          <td>{{ run.started_at|date:"Y-m-d H:i" }} UTC</td>
+          <td>{{ run.get_trigger_display }}{% if run.triggered_by %} · {{ run.triggered_by.email }}{% endif %}</td>
+          <td class="num">{{ run.processed }}</td>
+          <td class="num">{{ run.created }}</td>
+          <td class="num">{{ run.skipped }}</td>
+          <td class="num">{{ run.failed }}</td>
+          <td>{% include "billing/_run_status.html" %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8">No billing runs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

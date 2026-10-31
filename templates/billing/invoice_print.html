@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invoice {{ invoice.number }} · Brightloop</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef1f5; color: #10243e;
+      font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .toolbar { max-width: 52rem; margin: 1rem auto 0; padding: 0 1rem; display: flex; gap: 1rem; align-items: center; }
+    .toolbar button { background: #0b7a75; color: #fff; border: 0; border-radius: 4px; padding: .55rem 1rem;
+      font: inherit; font-weight: 600; cursor: pointer; }
+    .sheet { max-width: 52rem; margin: 1rem auto 2rem; background: #fff; border: 1px solid #d3d9e2;
+      border-radius: 6px; padding: 2.5rem; }
+    header { display: flex; justify-content: space-between; gap: 2rem; flex-wrap: wrap; margin-bottom: 2rem; }
+    h1 { margin: 0; font-size: 1.6rem; }
+    .muted { color: #55627a; }
+    dl { display: grid; grid-template-columns: auto auto; gap: .2rem 1rem; margin: 0; }
+    dt { color: #55627a; } dd { margin: 0; text-align: right; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
+    th, td { text-align: left; padding: .5rem .4rem; border-bottom: 1px solid #d3d9e2; }
+    th { font-size: .8rem; color: #55627a; text-transform: uppercase; letter-spacing: .04em; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    tfoot th { text-transform: none; letter-spacing: 0; font-size: .95rem; color: #10243e; text-align: right; }
+    .total td, .total th { font-size: 1.1rem; font-weight: 700; border-bottom: 2px solid #10243e; }
+    .stamp { display: inline-block; border: 2px solid currentColor; border-radius: 4px; padding: .1rem .5rem;
+      font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: .8rem; }
+    .stamp.paid { color: #146c43; } .stamp.cancelled { color: #b42318; } .stamp.draft { color: #1d4f91; }
+    @media print {
+      body { background: #fff; }
+      .toolbar { display: none; }
+      .sheet { border: 0; margin: 0; padding: 0; max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button type="button" onclick="window.print()">Print / Save as PDF</button>
+    <a href="{{ back_url }}">Back to invoice</a>
+  </div>
+  <article class="sheet">
+    <header>
+      <div>
+        <h1>Invoice {{ invoice.number }}</h1>
+        <p class="muted" style="margin:.25rem 0 0">Brightloop Software</p>
+        {% if invoice.status != "confirmed" %}<p style="margin:.75rem 0 0"><span class="stamp {{ invoice.status }}">{{ invoice.get_status_display }}</span></p>{% endif %}
+      </div>
+      <dl>
+        <dt>Invoice date</dt><dd>{{ invoice.invoice_date|date:"Y-m-d" }}</dd>
+        <dt>Due date</dt><dd>{{ invoice.due_date|date:"Y-m-d" }}</dd>
+        <dt>Payment terms</dt><dd>{{ invoice.payment_terms_name }}</dd>
+        <dt>Subscription</dt><dd>{{ invoice.subscription.number }}</dd>
+        <dt>Billing period</dt><dd>{{ invoice.period_start|date:"Y-m-d" }} – {{ invoice.period_end|date:"Y-m-d" }}</dd>
+      </dl>
+    </header>
+    <p><span class="muted">Bill to</span><br><strong>{{ invoice.customer_email }}</strong></p>
+    <p class="muted" style="margin:0">Plan: {{ invoice.plan_name }}</p>
+    <table>
+      <thead>
+        <tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Discount</th><th class="num">Tax</th><th class="num">Amount</th></tr>
+      </thead>
+      <tbody>
+        {% for line in invoice.lines.all %}
+          <tr>
+            <td>{{ line.description }}{% if line.is_addon %} (add-on){% endif %}</td>
+            <td class="num">{{ line.quantity }}</td>
+            <td class="num">{{ line.unit_price|floatformat:"2g" }}</td>
+            <td class="num">{% if line.discount_amount %}−{{ line.discount_amount|floatformat:"2g" }}{% else %}—{% endif %}</td>
+            <td class="num">{{ line.tax_rate|floatformat:"2" }}% · {{ line.tax_amount|floatformat:"2g" }}</td>
+            <td class="num">{{ line.amount|floatformat:"2g" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr><th colspan="5">Subtotal before tax</th><td class="num">{{ invoice.untaxed_amount|floatformat:"2g" }}</td></tr>
+        {% if invoice.discount_amount %}<tr><th colspan="5">Discounts</th><td class="num">−{{ invoice.discount_amount|floatformat:"2g" }}</td></tr>{% endif %}
+        <tr><th colspan="5">Tax</th><td class="num">{{ invoice.tax_amount|floatformat:"2g" }}</td></tr>
+        <tr class="total"><th colspan="5">Total due</th><td class="num">{{ invoice.total|floatformat:"2g" }}</td></tr>
+      </tfoot>
+    </table>
+    <p class="muted" style="margin-top:2rem;font-size:.85rem">Prices are shown before tax; tax is added on top. Please pay by {{ invoice.due_date|date:"Y-m-d" }}.</p>
+  </article>
+</body>
+</html>

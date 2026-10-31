@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Billing run #{{ run.pk }} · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'billing:run_list' %}">Billing runs</a> / #{{ run.pk }}</p>
+<div class="head">
+  <h1>Billing run #{{ run.pk }} {% include "billing/_run_status.html" %}</h1>
+  {% if run.status == "running" %}
+    <form method="post" action="{% url 'billing:run_continue' run.pk %}">{% csrf_token %}
+      <button class="btn" type="submit">Continue run</button>
+    </form>
+  {% endif %}
+</div>
+<div class="panel" style="margin-bottom:1.5rem">
+  <table>
+    <tbody>
+      <tr><th scope="row">Trigger</th><td>{{ run.get_trigger_display }}{% if run.triggered_by %} by {{ run.triggered_by.email }}{% elif run.trigger == "scheduled" %} (scheduler){% endif %}</td></tr>
+      <tr><th scope="row">Billing date</th><td>{{ run.run_date|date:"Y-m-d" }} <span class="help">(subscriptions due on or before this date)</span></td></tr>
+      <tr><th scope="row">Started</th><td>{{ run.started_at|date:"Y-m-d H:i:s" }} UTC</td></tr>
+      <tr><th scope="row">Finished</th><td>{% if run.finished_at %}{{ run.finished_at|date:"Y-m-d H:i:s" }} UTC{% else %}Not yet{% endif %}</td></tr>
+      <tr><th scope="row">Subscriptions processed</th><td>{{ run.processed }}</td></tr>
+      <tr><th scope="row">Invoices created</th><td>{{ run.created }}</td></tr>
+      <tr><th scope="row">Skipped</th><td>{{ run.skipped }}</td></tr>
+      <tr><th scope="row">Failed</th><td>{{ run.failed }}</td></tr>
+    </tbody>
+  </table>
+</div>
+<div class="head">
+  <h2>Results</h2>
+  <nav class="links" aria-label="Filter by outcome" style="margin:0">
+    {% if outcome %}<a href="?">All</a>{% else %}<strong aria-current="page">All</strong>{% endif %}
+    {% for value, label in outcomes %}
+      {% if outcome == value %}<strong aria-current="page">{{ label }}</strong>{% else %}<a href="?outcome={{ value }}">{{ label }}</a>{% endif %}
+    {% endfor %}
+  </nav>
+</div>
+<div class="tablewrap" style="margin-top:.75rem">
+  <table>
+    <thead><tr><th>Subscription</th><th>Customer</th><th>Outcome</th><th>Invoice</th><th>Reason</th></tr></thead>
+    <tbody>
+      {% for result in page %}
+        <tr>
+          <td><a href="{% url 'subscriptions:subscription_detail' result.subscription_id %}">{{ result.subscription.number }}</a></td>
+          <td>{{ result.subscription.customer.user.email }}</td>
+          <td><span class="badge {{ result.outcome }}">{{ result.get_outcome_display }}</span></td>
+          <td>{% if result.invoice %}<a href="{% url 'billing:invoice_detail' result.invoice_id %}">{{ result.invoice.number }}</a>{% else %}—{% endif %}</td>
+          <td>{{ result.reason|default:"—" }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="5">{% if outcome %}No {{ outcome }} results in this run.{% else %}No subscriptions were due for this run.{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?{% if outcome %}outcome={{ outcome }}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?{% if outcome %}outcome={{ outcome }}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

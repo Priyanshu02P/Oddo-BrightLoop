@@ -1,0 +1,31 @@
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">Amount</th>
+        <th class="num">Discount</th><th class="num">Tax rate</th><th class="num">Tax</th><th class="num">Line total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in invoice.lines.all %}
+        <tr>
+          <td>{{ line.description }}{% if line.is_addon %} <span class="badge draft">Add-on</span>{% endif %}</td>
+          <td class="num">{{ line.quantity }}</td>
+          <td class="num">{{ line.unit_price|floatformat:"2g" }}</td>
+          <td class="num">{{ line.amount|floatformat:"2g" }}</td>
+          <td class="num">{% if line.discount_amount %}−{{ line.discount_amount|floatformat:"2g" }}{% else %}—{% endif %}</td>
+          <td class="num">{{ line.tax_rate|floatformat:"2" }}%</td>
+          <td class="num">{{ line.tax_amount|floatformat:"2g" }}</td>
+          <td class="num">{{ line.total|floatformat:"2g" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><th scope="row" colspan="7">Subtotal before tax</th><td class="num">{{ invoice.untaxed_amount|floatformat:"2g" }}</td></tr>
+      <tr><th scope="row" colspan="7">Discounts</th><td class="num">{% if invoice.discount_amount %}−{{ invoice.discount_amount|floatformat:"2g" }}{% else %}0.00{% endif %}</td></tr>
+      <tr><th scope="row" colspan="7">Tax</th><td class="num">{{ invoice.tax_amount|floatformat:"2g" }}</td></tr>
+      <tr><th scope="row" colspan="7">Total</th><td class="num"><strong>{{ invoice.total|floatformat:"2g" }}</strong></td></tr>
+    </tfoot>
+  </table>
+</div>
+<p class="help">Prices are before tax; each line's tax uses the product's tax rate when the invoice was generated.</p>

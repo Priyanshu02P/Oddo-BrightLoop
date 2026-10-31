@@ -1,0 +1,1 @@
+<span class="badge {{ invoice.status }}">{{ invoice.get_status_display }}</span>{% if invoice.is_overdue %} <span class="badge overdue">Overdue · {{ invoice.days_overdue }} day{{ invoice.days_overdue|pluralize }}</span>{% endif %}

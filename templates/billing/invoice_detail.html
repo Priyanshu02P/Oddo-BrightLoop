@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ invoice.number }} · Invoices · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'billing:invoice_list' %}">Invoices</a> / {{ invoice.number }}</p>
+<div class="head">
+  <h1>{{ invoice.number }} {% include "billing/_status.html" %}</h1>
+  <div class="actions">
+    <a class="btn secondary" href="{% url 'billing:invoice_print' invoice.pk %}">Print / PDF</a>
+    {% for key, action in actions %}
+      <a class="btn {% if action.danger %}danger{% else %}secondary{% endif %}" href="{% url 'billing:invoice_action' invoice.pk key %}">{{ action.label }}</a>
+    {% endfor %}
+  </div>
+</div>
+{% if invoice.status == "draft" %}
+  <div class="alert">Draft: not visible to the customer yet. Confirm it to issue it.</div>
+{% elif invoice.status == "cancelled" %}
+  <div class="alert warning">Cancelled. This billing period stays billed and will not be invoiced again.</div>
+{% endif %}
+{% if invoice.email_status == "failed" %}
+  <div class="alert error">The last email attempt failed. The invoice is unchanged; send it again when the mail server is available.</div>
+{% endif %}
+{% url 'subscriptions:subscription_detail' invoice.subscription_id as subscription_url %}
+{% include "billing/_summary.html" %}
+<h2 style="margin-top:1.5rem">Lines</h2>
+{% include "billing/_lines.html" %}
+<h2 style="margin-top:1.5rem">Payments</h2>
+<div class="panel">
+  {% if invoice.status == "paid" %}<p style="margin:0">Paid on {{ invoice.paid_at|date:"Y-m-d" }}.</p>
+  {% else %}<p style="margin:0">No payment recorded. Payment recording is not available yet.</p>{% endif %}
+</div>
+<h2 style="margin-top:1.5rem">Delivery</h2>
+<p>Email: <strong>{{ invoice.get_email_status_display }}</strong>{% if invoice.emailed_at %} · last sent {{ invoice.emailed_at|date:"Y-m-d H:i" }} UTC{% endif %}</p>
+<h2 style="margin-top:1.5rem">Activity history</h2>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>When</th><th>Who</th><th>What</th><th>Change</th></tr></thead>
+    <tbody>
+      {% for entry in activity %}
+        <tr>
+          <td>{{ entry.created_at|date:"Y-m-d H:i" }} UTC</td>
+          <td>{% if entry.actor %}{{ entry.actor.email }}{% else %}System (scheduled job){% endif %}</td>
+          <td>{{ entry.action }}</td>
+          <td>{% if entry.to_status %}{{ entry.from_status|default:"—" }} → {{ entry.to_status }}{% else %}—{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">No activity recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

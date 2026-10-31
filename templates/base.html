@@ -67,6 +67,10 @@
     .badge.draft, .badge.quotation, .badge.confirmed { color: #1d4f91; }
     .badge.paused, .badge.warning { color: var(--amber); }
     .badge.closed { color: var(--muted); }
+    .badge.paid, .badge.created, .badge.completed { color: #146c43; }
+    .badge.cancelled, .badge.skipped { color: var(--muted); }
+    .badge.overdue, .badge.failed { color: var(--error); }
+    .badge.running { color: #1d4f91; }
     .btn.secondary { background: #fff; color: var(--ink); border: 1px solid #8a96aa; }
     .btn.secondary:hover { background: var(--ground); }
     .btn.danger { background: var(--error); }
@@ -92,6 +96,12 @@
           {% if user|can:"manage_subscriptions" %}
             <a href="{% url 'subscriptions:subscription_list' %}">Subscriptions</a>
           {% endif %}
+          {% if user|can:"manage_invoices" %}
+            <a href="{% url 'billing:invoice_list' %}">Invoices</a>
+          {% endif %}
+          {% if user|can:"run_billing" %}
+            <a href="{% url 'billing:run_list' %}">Billing runs</a>
+          {% endif %}
           {% if user|can:"manage_quotation_templates" %}
             <a href="{% url 'subscriptions:template_list' %}">Quotation templates</a>
           {% endif %}
@@ -101,6 +111,7 @@
           {% if user|can:"access_customer_portal" %}
             <a href="{% url 'accounts:portal_home' %}">Overview</a>
             <a href="{% url 'portal_subscriptions:subscription_list' %}">My subscriptions</a>
+            <a href="{% url 'portal_invoices:invoice_list' %}">My invoices</a>
             <a href="{% url 'accounts:portal_account' %}">Account / security</a>
           {% endif %}
         </nav>

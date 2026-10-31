@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Invoices · Brightloop{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Invoices</h1>
+  <a class="btn secondary" href="{% url 'billing:run_list' %}">Billing runs</a>
+</div>
+<form method="get" class="panel" style="margin-bottom:1rem">
+  <div style="display:grid;gap:0 1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
+    <div class="field"><label for="q">Search</label>
+      <input type="text" id="q" name="q" value="{{ filters.q }}" placeholder="Invoice, subscription or customer email"></div>
+    <div class="field"><label for="status">Status</label>
+      <select id="status" name="status"><option value="">All</option>
+        {% for value, label in statuses %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="from">Invoice date from</label>
+      <input type="date" id="from" name="from" value="{{ filters.from }}"></div>
+    <div class="field"><label for="to">Invoice date to</label>
+      <input type="date" id="to" name="to" value="{{ filters.to }}"></div>
+  </div>
+  <div class="field"><label style="display:flex;gap:.5rem;align-items:center;font-weight:400">
+    <input type="checkbox" name="overdue" value="1" {% if filters.overdue %}checked{% endif %}> Overdue only (due date passed, not paid)</label></div>
+  <div class="actions"><button class="btn secondary" type="submit">Apply filters</button><a href="{% url 'billing:invoice_list' %}">Clear</a></div>
+</form>
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr><th>Invoice</th><th>Customer</th><th>Subscription</th><th>Invoice date</th><th>Due date</th><th class="num">Total</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for invoice in page %}
+        <tr>
+          <td><a href="{% url 'billing:invoice_detail' invoice.pk %}">{{ invoice.number }}</a></td>
+          <td>{{ invoice.customer_email }}</td>
+          <td>{{ invoice.subscription.number }}</td>
+          <td>{{ invoice.invoice_date|date:"Y-m-d" }}</td>
+          <td>{{ invoice.due_date|date:"Y-m-d" }}</td>
+          <td class="num">{{ invoice.total|floatformat:"2g" }}</td>
+          <td>{% include "billing/_status.html" %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7">No invoices match. Invoices are created from subscriptions by a <a href="{% url 'billing:run_list' %}">billing run</a>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?{{ querystring }}{% if querystring %}&amp;{% endif %}page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}
