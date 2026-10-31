@@ -41,6 +41,4 @@ def test_archived_product_is_rejected():
 
 def test_variant_of_another_product_is_rejected():
     with pytest.raises(InvalidLine):
-        pricing.price_line(
-            product=ProductFactory(), variant=ProductVariantFactory(), quantity=1
-        )
+        pricing.price_line(product=ProductFactory(), variant=ProductVariantFactory(), quantity=1)

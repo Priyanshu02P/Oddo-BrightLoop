@@ -264,9 +264,7 @@ def accept_quotation(*, actor, subscription):
         if not locked.is_quotation_valid_on(today):
             raise QuotationExpired("This quotation has expired and can no longer be accepted.")
 
-    return transition_subscription(
-        subscription, Status.CONFIRMED, actor=actor, validate=validate
-    )
+    return transition_subscription(subscription, Status.CONFIRMED, actor=actor, validate=validate)
 
 
 # --- Plan-governed lifecycle actions ------------------------------------------
@@ -275,9 +273,7 @@ def accept_quotation(*, actor, subscription):
 def _require_plan_option(option, label):
     def validate(locked):
         if not getattr(locked.plan, option):
-            raise ActionNotAllowedByPlan(
-                f"The plan “{locked.plan.name}” does not allow {label}."
-            )
+            raise ActionNotAllowedByPlan(f"The plan “{locked.plan.name}” does not allow {label}.")
 
     return validate
 

@@ -37,15 +37,15 @@ def customer_subscriptions(user):
 
 
 def list_activity(subscription):
-    return AuditLog.objects.select_related("actor").filter(
-        target_type=subscription._meta.label_lower, target_id=subscription.pk
-    ).order_by("created_at", "id")
+    return (
+        AuditLog.objects.select_related("actor")
+        .filter(target_type=subscription._meta.label_lower, target_id=subscription.pk)
+        .order_by("created_at", "id")
+    )
 
 
 def list_templates(q=""):
-    templates = QuotationTemplate.objects.select_related("plan").annotate(
-        line_count=Count("lines")
-    )
+    templates = QuotationTemplate.objects.select_related("plan").annotate(line_count=Count("lines"))
     if q:
         templates = templates.filter(name__icontains=q)
     return templates.order_by("name", "id")
@@ -56,9 +56,7 @@ def due_for_expiry(today):
 
 
 def due_for_activation(today):
-    return Subscription.objects.filter(
-        status=Subscription.Status.CONFIRMED, start_date__lte=today
-    )
+    return Subscription.objects.filter(status=Subscription.Status.CONFIRMED, start_date__lte=today)
 
 
 def open_for_plan(plan):

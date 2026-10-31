@@ -93,9 +93,7 @@ class SubscriptionCreateForm(forms.Form):
     """Customer, optional template, dates and payment terms. Status, number and
     prices are never accepted from the browser."""
 
-    customer = forms.ModelChoiceField(
-        Customer.objects.none(), empty_label="Select a customer"
-    )
+    customer = forms.ModelChoiceField(Customer.objects.none(), empty_label="Select a customer")
     template = forms.ModelChoiceField(
         QuotationTemplate.objects.none(),
         required=False,

@@ -23,6 +23,25 @@
 {% include "billing/_summary.html" %}
 <h2 style="margin-top:1.5rem">Lines</h2>
 {% include "billing/_lines.html" %}
+{% if invoice.discount_snapshots.exists %}
+<h2 style="margin-top:1.5rem">Applied discounts</h2>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Order</th><th>Discount</th><th>Type</th><th>Scope</th><th class="num">Amount applied</th></tr></thead>
+    <tbody>
+      {% for snap in invoice.discount_snapshots.all %}
+        <tr>
+          <td>{{ snap.application_order }}</td>
+          <td>{{ snap.discount_name }}</td>
+          <td>{{ snap.discount_type }}</td>
+          <td>{{ snap.scope_type }}</td>
+          <td class="num">−{{ snap.amount_applied|floatformat:"2g" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
 <h2 style="margin-top:1.5rem">Payments</h2>
 <div class="panel">
   {% if invoice.status == "paid" %}<p style="margin:0">Paid on {{ invoice.paid_at|date:"Y-m-d" }}.</p>
@@ -42,8 +61,6 @@
           <td>{{ entry.action }}</td>
           <td>{% if entry.to_status %}{{ entry.from_status|default:"—" }} → {{ entry.to_status }}{% else %}—{% endif %}</td>
         </tr>
-      {% empty %}
-        <tr><td colspan="4">No activity recorded yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

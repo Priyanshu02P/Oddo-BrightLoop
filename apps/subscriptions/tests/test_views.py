@@ -242,9 +242,7 @@ def test_customer_accepts_a_valid_quotation(client, customer):
 
 def test_expired_quotation_cannot_be_accepted_by_a_crafted_request(client, customer):
     client.force_login(customer.user)
-    subscription = SubscriptionFactory(
-        customer=customer, status=Status.QUOTATION, valid_until=PAST
-    )
+    subscription = SubscriptionFactory(customer=customer, status=Status.QUOTATION, valid_until=PAST)
     url = reverse("portal_subscriptions:subscription_action", args=[subscription.pk, "accept"])
     response = client.post(url, follow=True)
     subscription.refresh_from_db()
@@ -287,9 +285,7 @@ def test_cron_is_closed_without_the_secret(client, settings):
 
 def test_cron_is_closed_when_no_secret_is_configured(client, settings):
     settings.CRON_SECRET = ""
-    response = client.get(
-        reverse("subscriptions:daily_cron"), headers={"Authorization": "Bearer "}
-    )
+    response = client.get(reverse("subscriptions:daily_cron"), headers={"Authorization": "Bearer "})
     assert response.status_code == 403
 
 

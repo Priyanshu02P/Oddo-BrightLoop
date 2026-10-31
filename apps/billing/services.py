@@ -80,9 +80,17 @@ def transition_invoice(invoice, to_status, *, actor=None):
 
 
 def confirm_invoice(*, actor, invoice):
-    """Draft -> Confirmed; amounts are fixed from here on (FR-5.5, FR-5.10)."""
+    """Draft -> Confirmed; amounts are fixed from here on (FR-5.5, FR-5.10).
+
+    Also confirms redemption increments for any applied discounts (FR-6.8).
+    """
     _require(actor)
-    return transition_invoice(invoice, Status.CONFIRMED, actor=actor)
+    with transaction.atomic():
+        confirmed = transition_invoice(invoice, Status.CONFIRMED, actor=actor)
+        from apps.discounts.services import record_confirmed_redemptions
+
+        record_confirmed_redemptions(invoice=confirmed, actor=actor)
+    return confirmed
 
 
 def cancel_invoice(*, actor, invoice):
@@ -140,7 +148,7 @@ def _invoice_line(subscription_line):
     subscription; the tax rate comes from the product's tax now (BR-8, FR-5.4)."""
     tax_rate = subscription_line.product.tax.rate
     amount = round_money(subscription_line.unit_price * subscription_line.quantity)
-    discount = ZERO  # M6 discounts are not available yet; see the M5 open items.
+    discount = ZERO
     description = subscription_line.product.name
     if subscription_line.variant is not None:
         variant = subscription_line.variant
@@ -178,8 +186,25 @@ def generate_invoice(subscription, *, today, actor=None):
     if not source_lines:
         raise BillingError("The subscription has no lines to invoice.")
     lines = [_invoice_line(line) for line in source_lines]
+
+    # Evaluate and apply eligible M6 discounts (FR-5.8, FR-6.5, FR-6.7, FR-6.9).
+    from apps.discounts.models import InvoiceDiscountSnapshot
+    from apps.discounts.services import apply_stacked_discounts
+
+    discount_result = apply_stacked_discounts(
+        subscription=subscription,
+        customer=subscription.customer,
+        invoice_lines=lines,
+        as_of=today,
+    )
+    for i, line in enumerate(lines):
+        line.discount_amount = discount_result.line_discounts.get(i, ZERO)
+        line.tax_amount = round_money(
+            (line.amount - line.discount_amount) * line.tax_rate / Decimal("100")
+        )
+
     untaxed = sum((line.amount for line in lines), ZERO)
-    discount = sum((line.discount_amount for line in lines), ZERO)
+    discount = discount_result.total_discount
     tax = sum((line.tax_amount for line in lines), ZERO)
     try:
         with transaction.atomic():  # savepoint: a duplicate undoes only this insert
@@ -209,6 +234,26 @@ def generate_invoice(subscription, *, today, actor=None):
     for line in lines:
         line.invoice = invoice
     InvoiceLine.objects.bulk_create(lines)
+
+    # Persist immutable snapshot of applied discounts (FR-6.5, §4.4)
+    if discount_result.applications:
+        InvoiceDiscountSnapshot.objects.bulk_create(
+            [
+                InvoiceDiscountSnapshot(
+                    invoice=invoice,
+                    discount=app.discount,
+                    discount_name=app.discount.name,
+                    discount_type=app.discount.discount_type,
+                    discount_value=app.discount.value,
+                    scope_type=app.discount.scope_type,
+                    application_order=order,
+                    amount_applied=app.amount_applied,
+                    redemption_confirmed=False,
+                )
+                for order, app in enumerate(discount_result.applications, start=1)
+            ]
+        )
+
     subscription.next_billing_date = next_start
     subscription.save(update_fields=["next_billing_date", "updated_at"])
     record_audit(actor=actor, action="invoice.created", target=invoice)

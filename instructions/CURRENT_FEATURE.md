@@ -1,979 +1,958 @@
-# M5. Invoicing
+# M6. Discounts
 
-**Project:** Brightloop Subscription Management System  
-**Module:** M5 — Invoicing  
-**Document type:** Current feature specification / implementation baseline  
-**Status:** Draft — pending confirmation of the open decisions listed below  
-**Primary source:** `REQUIREMENTS.md` v2.0  
-**Supporting sources:** `UI_UX.md` and `CODING_STANDARDS.md`
-
-> This document defines the expected behavior and acceptance baseline for M5. It does not claim that the feature has already been implemented. The requirements document remains the source of truth. Where the source documents are silent or explicitly leave a decision open, this specification records the gap instead of silently turning an assumption into a requirement.
+**Document type:** Feature specification and implementation baseline  
+**Product:** Brightloop Subscription Management System  
+**Module:** M6 — Discounts  
+**Requirement coverage:** FR-6.1 through FR-6.9  
+**Status:** Derived implementation baseline; unresolved policy details remain open  
+**Primary source documents:** `REQUIREMENTS.md`, `UI_UX.md`, `CODING_STANDARDS.md`
 
 ---
 
 ## 1. Purpose and scope
 
-M5 generates and manages invoices from subscriptions. It automates the creation of invoice records for due subscription billing periods, calculates invoice lines and taxes from subscription/product data, applies eligible discounts and proration adjustments, determines due dates from payment terms, and provides operational billing-run history.
+M6 provides the discount-rule configuration, eligibility evaluation, stacking, application, and redemption-tracking capabilities used by subscription billing.
 
-The module must make billing reliable and repeatable. In particular, it must prevent duplicate invoices for the same subscription period, retain the fact that a cancelled invoice's period has already been billed, and isolate failures so one subscription does not stop an entire bulk billing run.
+The module allows an Admin to define fixed-amount and percentage discounts, specify their conditions and scope, and control how many times each customer may use a discount. During invoice generation, the billing workflow evaluates eligible discounts and applies them automatically. The invoice must preserve enough detail to explain which discounts were applied and in what order.
 
-M5 owns invoice generation, invoice records, invoice lifecycle, invoice presentation, and billing-run records. Payment recording and collection are integrated with M7; discount rules are owned by M6; subscription lifecycle and line configuration are owned by M4.
+M6 owns discount rules, discount eligibility, stacking calculations, and redemption usage records. M5 remains the owner of invoice generation, invoice lines, invoice totals, invoice confirmation, and billing-run orchestration. M6 supplies discount calculation/application data to M5 through a clear service boundary.
 
 ### 1.1 Goals
 
-1. Generate invoices automatically from due subscriptions without requiring Staff to retype customer or product-line information.
-2. Process hundreds of due subscriptions in a bulk billing run initiated manually by Admin/Staff or by the scheduler.
-3. Guarantee at most one invoice per subscription per billing period through a database uniqueness constraint.
-4. Ensure a cancelled invoice does not make its billing period eligible for a replacement invoice.
-5. Calculate taxes from the tax attached to each product and retain the tax rate on each invoice line.
-6. Apply eligible discounts and proration adjustments to the next invoice.
-7. Derive invoice due dates from the subscription's payment terms.
-8. Support invoice confirmation, cancellation, email delivery, and PDF printing.
-9. Preserve confirmed invoice values as historical financial records.
-10. Provide an inspectable billing-run result log with Created, Skipped, and Failed outcomes.
-11. Keep invoice and billing operations auditable, transactional, idempotent, and safe under retries or concurrent requests.
+- Let Admins create and maintain discount rules without developer intervention.
+- Support fixed-amount and percentage discount types.
+- Evaluate minimum purchase amount, minimum quantity, validity dates, and per-customer usage limits.
+- Support discounts scoped to selected products or to a whole subscription.
+- Apply eligible discounts automatically to the next invoice.
+- Allow multiple eligible discounts to stack in a deterministic order.
+- Cap the combined discount at 100% of the eligible amount so the discounted amount does not become negative.
+- Track usage per customer and per discount.
+- Increment redemption usage only when an invoice using the discount is confirmed.
+- Make discount outcomes visible and auditable.
 
 ### 1.2 In scope
 
-- Invoice creation from subscription billing periods.
-- Invoice and invoice-line data required by the requirements.
-- Customer and subscription references on invoices.
-- Product-line, quantity, unit-price, tax, discount, proration, subtotal, and total snapshots/calculations.
-- Due-date calculation from the subscription's payment terms.
-- Invoice status workflow: Draft, Confirmed, Paid, and Cancelled.
-- Admin/Staff invoice list, detail, confirm, cancel, send, and print actions.
-- Customer invoice list, detail, and print access for the authenticated customer's own invoices.
-- Scheduled and manually triggered bulk billing runs.
-- Billing-run history and per-subscription outcomes.
-- Duplicate-period protection and safe handling of cancelled invoices.
-- Invoice immutability after confirmation.
-- Integration points with M4 subscriptions, M6 discounts, M7 payments, and M8 reporting.
-- Automated tests for calculations, transitions, idempotency, access control, and failure isolation.
+- Admin-only discount rule creation and editing.
+- Discount list and detail views.
+- Fixed-amount and percentage discount definitions.
+- Minimum purchase amount and minimum quantity conditions.
+- Start date and end date eligibility.
+- Per-customer usage limits.
+- Product-specific and whole-subscription scope.
+- Automatic eligibility evaluation during invoice generation.
+- Fixed-first, percentage-second stacking.
+- Combined discount cap of 100%.
+- Per-customer redemption records and confirmation-time usage increments.
+- Discount detail in invoice calculations and presentation.
+- Validation, permissions, auditability, and automated tests.
 
 ### 1.3 Out of scope
 
-The following are not M5-owned features and must not be treated as committed M5 functionality without a separate requirement:
+Do not add the following unless a separate requirement or product decision authorizes them:
 
-- Creating or editing subscriptions, plans, products, product variants, quotation templates, or subscription lines (M2/M3/M4).
-- Defining discount rules or redemption policy (M6); M5 consumes eligible discount results and records the invoice breakdown.
-- Recording payments, payment-method administration, payment-provider integration, or payment collection workflows (M7). M5 exposes the invoice state and integrates with payment outcomes.
-- Customer-facing online payment checkout. The UI/UX source explicitly says an online payment action is not specified for the MVP.
-- Dunning policy administration or reminder cadence configuration (M7 / product decision); M5 may expose invoice due/overdue information used by those workflows.
-- Revenue dashboards, financial reports, and CSV exports (M8), beyond providing accurate invoice data.
-- Credit notes, replacement invoices for cancelled periods, invoice amendments, or post-confirmation line editing. The working correction assumption is cancel-only, and the period remains billed.
-- Multi-currency, multi-company, jurisdictional tax, or customer-location tax logic. The source assumes one currency and one company, pending confirmation.
-- Inventory, fulfillment, shipment, or purchase-order processes.
-- A user-configurable invoice numbering format, invoice branding editor, or PDF template designer; these are not defined by the source requirements.
-- Bulk invoice cancellation, bulk editing, or a manual “regenerate this period” action.
+- Customer-created or customer-entered coupon codes.
+- Public promotional-code entry or redemption URLs.
+- Discount management by Staff or Customers.
+- Global usage limits across all customers; the requirement specifies a per-customer limit.
+- Referral programs, loyalty points, store credit, gift cards, or rewards wallets.
+- Customer segmentation, geography-based eligibility, or marketing campaign automation.
+- Arbitrary rule expressions or a user-configurable rule engine.
+- Discount stacking priorities configurable by Admin; the source defines fixed-amount-first, then percentage.
+- Multi-currency discount conversion.
+- Retroactive recalculation of confirmed invoices.
+- Refunds or credit notes for discounts already applied to confirmed invoices.
+- A customer-facing discount marketplace.
 
 ---
 
 ## 2. Requirement traceability
 
-All M5 requirements below are **Must (M)** except FR-5.10, which is **Should (S)** in `REQUIREMENTS.md`.
+All M6 requirements are Must priority in `REQUIREMENTS.md`.
 
-| Requirement | Source requirement | M5 behavior |
+| Requirement | Source requirement | M6 behavior |
 |---|---|---|
-| FR-5.1 | Invoices are created automatically from subscriptions, with customer details, product lines, taxes, and totals prefilled. No manual typing. | Generate invoice records from subscription and related product data; prefill all supported billing information and calculate totals server-side. |
-| FR-5.2 | A bulk billing run processes all due subscriptions at once (hundreds per run). It can be triggered by the scheduler or manually by Admin/Staff. | Provide a manual Admin/Staff action and a protected scheduled entry point; process in bounded batches where needed. |
-| FR-5.3 | A unique constraint on (subscription, billing period) guarantees one invoice per period. A cancelled invoice still counts as billed for that period; the cycle is skipped and not re-billed. | Enforce a database-level unique constraint and treat a duplicate constraint conflict as a Skipped result. Include Cancelled invoices in the period-already-billed rule. |
-| FR-5.4 | Tax is calculated automatically from the tax attached to each product. Each invoice line carries its product's tax rate. | Copy the applicable product tax rate onto each invoice line and calculate tax using the shared money/rounding rules. |
-| FR-5.5 | Invoice actions: confirm, cancel, send (email), print (PDF). | Implement the four actions with role/state checks, safe feedback, and appropriate side-effect handling. |
-| FR-5.6 | Status workflow: Draft → Confirmed → Paid. Cancelled is a terminal side state. | Centralize and validate invoice transitions; Paid and Cancelled are terminal in the defined workflow. |
-| FR-5.7 | Each invoice has a due date derived from the subscription's payment terms. | Resolve the selected payment term and calculate/store the due date according to its configured rule. |
-| FR-5.8 | Applicable discounts (M6) and proration adjustments (FR-4.13) are applied automatically to the next invoice. | Consume eligible discount and pending proration data during invoice generation and show each adjustment on the invoice. |
-| FR-5.9 | Each billing run produces a result log (created, skipped, failed, with reasons). Failures in one subscription do not stop the rest of the run. | Persist run metadata and per-subscription outcomes; isolate each subscription's processing failure. |
-| FR-5.10 | Confirmed invoices are immutable (corrections via cancel and the rules in Open Item I). | Treat confirmed invoice financial/customer/line fields as immutable. Use cancellation under the current working assumption; this requirement is Should priority. |
+| FR-6.1 | Only Admin can create discount rules. | Enforce Admin-only create and edit permissions on the server; hide management controls from Staff and Customers. |
+| FR-6.2 | Discount types are fixed amount or percentage. | Store an explicit discount type and a validated Decimal value. |
+| FR-6.3 | Conditions include minimum purchase amount or minimum quantity, start date, end date, and a per-customer usage limit. | Evaluate all configured eligibility conditions for the relevant customer and invoice context. |
+| FR-6.4 | Scope is specific products or whole subscriptions. | Match a rule either to its selected product set or to the whole eligible subscription amount. |
+| FR-6.5 | When a discount applies, it appears on the next invoice automatically. | M5 invokes M6 during invoice calculation; no manual re-entry is required. |
+| FR-6.6 | A discount stops applying when it expires or the customer's usage limit is reached. | Exclude expired and exhausted rules from eligibility evaluation. |
+| FR-6.7 | Multiple discounts can stack; combined discount is capped at 100 (see Open Item A). | Apply eligible discounts in the defined order and cap the aggregate reduction at 100% of the eligible amount, following the documented working assumption. |
+| FR-6.8 | Redemptions are tracked per customer per discount; counter increments when an invoice using it is confirmed. | Persist usage by `(discount, customer)` and increment exactly once on successful invoice confirmation. |
+| FR-6.9 | Stacking order is fixed amount first, then percentage on the remainder (see Open Item F). | Sort fixed discounts before percentage discounts; calculate each percentage against the remaining eligible amount. |
 
-### 2.1 Related business rules
+### 2.1 Related requirements and business rules
 
-- **BR-4:** One invoice per subscription per billing period, enforced by a database constraint.
-- **BR-5:** A cancelled invoice's period is considered billed and is not re-billed.
-- **BR-6:** A paused subscription is never billed; billing resumes from a recalculated date.
-- **BR-7:** Payment amount must equal invoice total (payment enforcement belongs to M7).
-- **BR-8:** Tax comes only from the product's tax.
-- **BR-9:** Total stacked discount never exceeds the cap; the default assumption is a 100% cap so totals never go below zero.
-- **BR-13:** Prices are tax-exclusive and tax is added on top (working assumption; Open Item B).
-- **BR-14:** The system uses a single currency and a single company (working assumption; Open Item D).
-
-### 2.2 Related non-functional requirements
-
-| ID | Requirement | M5 implication |
-|---|---|---|
-| NFR-1 | Every page responds in under 2 seconds with thousands of subscriptions on the books. | Paginate invoice lists, index common filters, avoid N+1 queries, and keep detail queries bounded. |
-| NFR-2 | A billing run handles hundreds of subscriptions per run without timeouts, using batching or background jobs. | Use bounded/resumable processing appropriate to Vercel execution limits. |
-| NFR-3 | Billing is transactional and idempotent; no duplicate or missed invoices. | Use database constraints, transactions, safe retry behavior, and per-subscription result tracking. |
-| NFR-4 | Server-side RBAC, customer data isolation, and protection against common web attacks. | Enforce invoice permissions and ownership in every view and service. |
-| NFR-5 | Status changes, billing actions, payments, and admin changes are logged with user and timestamp. | Audit invoice transitions and billing-run actions with actor/time context. |
-| NFR-7 | Scheduled jobs recover from failure and can be re-run safely. | Billing scheduler entry point must be idempotent and resumable. |
-| NFR-9 | Payment provider, email provider, and scheduler are behind interfaces so they can be swapped. | Keep email and scheduler dependencies behind existing project boundaries; do not implement payment-provider behavior inside M5. |
-| NFR-10 | Monetary values use fixed-precision decimals, never floating point. | Use Decimal-based calculations and a shared rounding helper. |
+- BR-9: Total stacked discount never exceeds the cap; the working assumption is 100% of the amount, so totals never go below zero.
+- BR-10: A discount's usage limit is counted per customer.
+- FR-5.8: Applicable discounts are applied automatically to the next invoice.
+- FR-5.10: Confirmed invoices are immutable; correction follows the invoice cancellation policy.
+- FR-5.9: A discount that is expired, exhausted, or ineligible is skipped with a log entry and must not block invoice generation.
+- Open Item A: “100” may mean 100% or 100 currency units; the working assumption is 100%.
+- Open Item F: The working stacking order is fixed amount first, then percentage on the remainder.
+- Open Item J: The working rounding rule is per line, two decimal places, half-up.
 
 ---
 
 ## 3. Roles and permissions
 
-M5 follows the role–permission matrix in `REQUIREMENTS.md` and `UI_UX.md`. The server is authoritative; hiding a button is not a security boundary.
-
 ### 3.1 Admin
+
+Admin is the only role authorized to create or edit discount rules.
 
 Admin can:
 
-- View all invoices and billing runs.
-- Confirm and cancel invoices.
-- Send invoices by email.
-- Print/download invoice PDFs.
-- Trigger a billing run manually.
-- Review billing-run summaries and per-subscription results.
-- Inspect invoice history and relevant audit events.
+- Open the Discounts section.
+- View the discount list and details.
+- Create a discount rule.
+- Edit a discount rule.
+- Configure type, value, conditions, validity dates, usage limit, and scope.
+- Review discount redemption usage.
+- Inspect validation errors and eligibility/application outcomes available through invoice or audit records.
+
+The source explicitly grants Admin discount-rule creation. Editing is shown in the UI/UX create/edit specification and is treated as part of Admin management. Delete, archive, and deactivate behavior is not specified and remains an open decision.
 
 ### 3.2 Internal Staff
 
-Staff can:
+Staff cannot create, edit, or manage discount rules.
 
-- View invoices and billing-run results needed for day-to-day operations.
-- Confirm and cancel invoices.
-- Send invoices by email.
-- Print/download invoice PDFs.
-- Trigger a billing run manually.
-- Review created, skipped, and failed billing outcomes.
-- Follow up outstanding and overdue invoices.
+Staff may encounter discount results through permitted operational workflows, such as:
 
-Staff cannot change catalog, plan, tax, discount, or quotation-template configuration. Invoice generation must consume those records without exposing their administration through M5.
+- Viewing invoice discount lines and totals.
+- Reviewing why a discount was or was not applied, if the application exposes that explanation.
+- Running billing through M5 without changing discount configuration.
+
+The Staff role must not receive a working discount-management endpoint merely because a control is hidden in the UI.
 
 ### 3.3 Customer
 
-A Customer can:
+Customers cannot manage discount rules or directly alter discount eligibility.
 
-- View only invoices belonging to their own Customer record.
-- Open invoice details.
-- Print/download their own invoice PDF.
-- View invoice number, invoice date, due date, amount, status, and overdue indicator.
+Customers may see discounts reflected in their own quotations or invoices where those records include them. Customers must only see their own commercial records.
 
-A Customer cannot:
+### 3.4 Server-side authorization
 
-- Confirm or cancel invoices.
-- Send invoices by email through internal controls.
-- Record payments.
-- Run billing or access billing-run logs.
-- Access another customer's invoice by changing a URL, identifier, or request payload.
-
-The requirements do not specify a customer-facing online payment action. Do not add one to the MVP without an explicit scope change.
-
-### 3.4 Permission matrix
-
-| Action | Admin | Staff | Customer |
-|---|---:|---:|---:|
-| List all invoices | Yes | Yes | No |
-| View any invoice detail | Yes | Yes | No |
-| View own invoice detail | Yes | Yes | Yes |
-| Confirm invoice | Yes | Yes | No |
-| Cancel invoice | Yes | Yes | No |
-| Send invoice email | Yes | Yes | No |
-| Print/download invoice | Yes | Yes | Own only |
-| Record payment | Through M7 workflow | Through M7 workflow | No |
-| Run billing manually | Yes | Yes | No |
-| View billing-run history/results | Yes | Yes | No |
-
-Any Admin/Staff actions performed on behalf of another user must be attributed to the authenticated internal actor in the audit record.
+- Enforce permissions in the view/service boundary, not only in templates.
+- Default-deny all unlisted discount-management actions.
+- Do not trust a submitted role, customer ID, discount ID, usage count, discount amount, or scope from the browser.
+- Resolve the acting user and customer identity from the authenticated server-side context.
+- Scope customer-visible invoice/quotation information through ownership-aware selectors.
 
 ---
 
-## 4. Domain model and data ownership
+## 4. Domain model
 
-The requirements identify `Invoice`, `InvoiceLine`, `Subscription`, `SubscriptionLine`, `Payment`, `BillingRun`, `Discount`, `DiscountRedemption`, `Tax`, `PaymentTerm`, `Notification`, and `AuditLog` as core domain entities. This section describes the M5-owned invoice and billing-run responsibilities without prescribing unapproved schema details.
+The following is a proposed logical model. Field names are illustrative and should be aligned with existing repository conventions before implementation.
 
-### 4.1 Invoice
+### 4.1 Discount
 
-An invoice represents the bill for exactly one subscription and one billing period.
+Represents an Admin-configured discount rule.
 
-Required relationships and information supported by the source documents:
+| Field | Suggested type | Purpose |
+|---|---|---|
+| `id` | UUID / project-standard primary key | Stable identifier. |
+| `name` | CharField | Human-readable rule name or identifier. |
+| `discount_type` | TextChoices | `FIXED_AMOUNT` or `PERCENTAGE`. |
+| `value` | DecimalField | Fixed monetary amount or percentage value. |
+| `minimum_purchase_amount` | Nullable DecimalField | Minimum qualifying purchase amount, if configured. |
+| `minimum_quantity` | Nullable positive integer / DecimalField | Minimum qualifying quantity, if configured. |
+| `start_date` | DateField | First eligible date, subject to boundary decision. |
+| `end_date` | DateField | Last eligible date, subject to boundary decision. |
+| `usage_limit_per_customer` | Positive integer | Maximum confirmed uses by one customer. |
+| `scope_type` | TextChoices | `SELECTED_PRODUCTS` or `WHOLE_SUBSCRIPTION`. |
+| `is_active` | BooleanField, if approved | Operational enable/disable flag; not explicitly specified. |
+| `created_at` | DateTimeField | Creation timestamp. |
+| `updated_at` | DateTimeField | Last update timestamp. |
+| `created_by` | ForeignKey to User | Admin actor responsible for creation. |
+| `updated_by` | Nullable ForeignKey to User | Admin actor responsible for last edit. |
 
-- One subscription reference.
-- One customer reference, available from the subscription.
-- A billing-period identity sufficient to enforce one invoice per subscription period.
-- Invoice number.
-- Invoice date.
-- Due date derived from the subscription's payment terms.
-- Status: Draft, Confirmed, Paid, or Cancelled.
-- Invoice lines.
-- Subtotal, tax, discount, proration, and total values as applicable.
-- Links to payment history.
-- Creation/confirmation/cancellation metadata and audit history as required by the shared audit design.
+#### Validation expectations
 
-The exact invoice-number format, whether invoice date is the billing-run date or a separately configured date, and the exact set of stored header snapshot fields are not specified. Confirm these before finalizing the model.
+- `discount_type` must be one of the two supported values.
+- `value` must be positive.
+- Percentage values must not exceed 100 unless a product decision explicitly allows a different stored value; the effective combined discount remains capped at 100%.
+- Fixed-amount values must use the configured system currency and Decimal arithmetic.
+- `usage_limit_per_customer` must be a positive integer unless unlimited usage is explicitly approved as a separate representation.
+- `end_date` must not precede `start_date`.
+- At least one eligibility condition may be configured, but whether either minimum is mandatory is not specified.
+- Whole-subscription scope must not require selected product rows.
+- Selected-product scope must reference at least one valid product.
+- The meaning of omitted minimum conditions must be consistent: an omitted condition is not evaluated as a zero-value restriction.
 
-### 4.2 InvoiceLine
+### 4.2 DiscountProduct
 
-Each invoice line must preserve the financial basis used for that invoice:
+A many-to-many through model linking a discount to products when the scope is selected products.
 
-- Product reference or product identity.
-- Description/name snapshot sufficient to render historical invoices.
-- Quantity.
-- Unit price.
-- Product tax rate copied to the invoice line.
-- Line amount and tax amount.
-- Discount detail when a discount applies to the line or subscription.
-- Proration adjustment detail where applicable.
+Suggested fields:
 
-The requirements explicitly state that each invoice line carries its product's tax rate. The source does not prescribe whether tax amount, pre-tax line amount, and post-tax line amount are all separate persisted fields; select a consistent representation and document it.
-
-### 4.3 BillingRun
-
-A BillingRun records one bulk billing execution. It should provide enough information for Admin/Staff to inspect:
-
-- Run identifier.
-- Start and completion timestamps, where available.
-- Trigger type: Scheduled or Manual.
-- Actor for a manual run; system identity for a scheduled run.
-- Number of subscriptions processed.
-- Number of invoices created.
-- Number of subscriptions skipped.
-- Number of failures.
-- Per-subscription result entries with outcome, invoice reference when created, and reason for skip/failure.
-
-The exact run status enum and storage format for per-item results are implementation decisions. The UI/UX source suggests run states such as In progress, Completed, Completed with failures, and Failed, but explicitly treats the exact run-state model as an implementation detail.
-
-### 4.4 Relationships with adjacent modules
-
-| Entity/module | M5 responsibility boundary |
+| Field | Purpose |
 |---|---|
-| M2 Product Catalog / Tax | Read product identity, sales price, and associated tax. Preserve the applicable product tax rate on the invoice line. M5 does not manage products or tax rates. |
-| M3 Plans | Consume billing cadence/plan context through the subscription. M5 does not configure plans. |
-| M4 Subscriptions | Select due, eligible subscriptions and copy their customer, plan, and subscription-line information into an invoice. Exclude paused subscriptions. |
-| M6 Discounts | Ask the discount domain/service for eligible discounts and include the resulting discount breakdown on the invoice. M5 does not own discount rules or redemption eligibility. |
-| M7 Payments | Expose invoice totals and state for payment recording/collection. Successful full payment moves Confirmed → Paid through the invoice transition service. |
-| M8 Reporting | Provide invoice, due-date, total, status, and billing-run data for reporting. |
-| M9 Configuration | Read payment terms and configured currency/company context. |
+| `discount` | Discount rule. |
+| `product` | Product included in the rule's scope. |
+| `created_at` | Link creation timestamp, if required by project conventions. |
 
-### 4.5 Historical snapshot rule
+Add a uniqueness constraint on `(discount, product)`.
 
-The coding standards state that invoice totals are stored at confirmation time and historical invoices must not be recomputed from current prices. M5 must therefore retain the financial values used when an invoice is confirmed. Later edits to a product, tax rate, subscription line, discount rule, or plan must not silently alter an already confirmed invoice.
+A rule scoped to selected products applies only to qualifying invoice/subscription lines for those products. It must not silently discount unrelated products.
 
-The exact snapshot strategy for customer billing address/name and product descriptions should be aligned with the project's invoice model before implementation; the source requires customer details to be prefilled but does not enumerate every snapshot field.
+### 4.3 DiscountRedemption
 
----
+Tracks confirmed usage per customer and discount.
 
-## 5. Invoice lifecycle and business logic
+| Field | Suggested type | Purpose |
+|---|---|---|
+| `id` | UUID / project-standard primary key | Stable identifier. |
+| `discount` | ForeignKey to Discount | Rule being redeemed. |
+| `customer` | ForeignKey to Customer/User profile | Customer whose usage is counted. |
+| `usage_count` | Positive integer | Number of confirmed invoice uses. |
+| `created_at` | DateTimeField | First record creation. |
+| `updated_at` | DateTimeField | Last count update. |
 
-### 5.1 Status workflow
+Add a database uniqueness constraint on `(discount, customer)`.
 
-The required invoice state machine is:
+The record is created when the first confirmed redemption occurs, or when a reservation mechanism is separately approved. The source specifies a counter increment on invoice confirmation; it does not specify a reservation at draft generation time.
+
+### 4.4 Invoice discount snapshot
+
+M5 owns invoices. The invoice must retain the discount details used for its financial calculation.
+
+A proposed invoice discount snapshot may contain:
+
+- Discount rule reference, where retaining the relationship is appropriate.
+- Discount name at calculation/confirmation time.
+- Discount type and configured value at the time of application.
+- Scope or affected product/line references.
+- Amount reduced.
+- Application order.
+- Customer and invoice context.
+- Whether the invoice has confirmed the redemption.
+
+The confirmed invoice must remain historically explainable even if the Admin later edits the source Discount rule. Do not recompute historical invoice totals using current rule values.
+
+Whether snapshot rows are stored as a dedicated invoice-discount model or embedded in an existing invoice-line representation is an implementation decision for M5/M6 coordination. The persisted financial snapshot must be durable either way.
+
+### 4.5 Relationships
 
 ```text
-Draft ──► Confirmed ──► Paid
-   │          │
-   └──────────┴──► Cancelled
+Discount 1 ─── * DiscountProduct * ─── 1 Product
+Discount 1 ─── * DiscountRedemption * ─── 1 Customer
+Discount 1 ─── * InvoiceDiscountSnapshot
+Customer 1 ─── * Invoice
+Invoice 1 ─── * InvoiceLine
 ```
 
-| From | To | Trigger | Actor |
-|---|---|---|---|
-| Draft | Confirmed | Invoice is confirmed manually or auto-confirmed by a billing run | Admin/Staff or billing process |
-| Confirmed | Paid | Full payment is recorded successfully | M7 payment workflow |
-| Draft | Cancelled | Invoice is cancelled | Admin/Staff |
-| Confirmed | Cancelled | Invoice is cancelled | Admin/Staff |
+`InvoiceDiscountSnapshot` is a proposed logical entity; exact ownership and table design should follow the existing billing app structure.
 
-Paid and Cancelled are terminal in the defined workflow. The source does not define a transition out of either state.
+---
 
-### 5.2 Centralized transition service
+## 5. Discount lifecycle and eligibility
 
-All invoice status changes must pass through one domain service, for example:
+### 5.1 Rule lifecycle
 
-```python
-invoices.services.transition(invoice, to_status, actor)
-```
+The requirements define validity dates and usage exhaustion, but do not define a complete rule status state machine.
 
-The exact module path should follow the existing repository layout. The service must:
+At minimum, eligibility must consider:
 
-1. Lock the invoice when concurrent changes are possible.
-2. Validate the requested transition against one centralized transition map.
-3. Reject invalid transitions with a domain-specific exception.
-4. Apply the status change atomically.
-5. Write an AuditLog entry with actor, previous status, new status, and timestamp.
-6. Preserve immutable financial fields once the invoice is Confirmed.
+1. Whether the rule is available for use (including any approved active/archived state).
+2. Whether the invoice's relevant date falls within the rule's validity window.
+3. Whether the customer has reached the per-customer usage limit.
+4. Whether the purchase amount meets the configured minimum, if present.
+5. Whether the qualifying quantity meets the configured minimum, if present.
+6. Whether the rule's scope matches the subscription or invoice lines.
+7. Whether the rule has a valid type/value configuration.
 
-Do not assign `invoice.status` directly from views, templates, tasks, or unrelated services.
+A rule that is expired, exhausted, or otherwise ineligible is skipped. It must not cause the entire invoice generation to fail.
 
-### 5.3 Invoice generation from a subscription
+### 5.2 Date eligibility
 
-When a subscription is due for billing, M5 should:
+- `start_date` and `end_date` define the discount's eligibility window.
+- The exact inclusivity of the start and end dates is not explicitly stated in the source documents.
+- A consistent date basis and timezone must be selected before implementation.
+- Do not silently interpret a date-only end value as an arbitrary UTC timestamp.
+- Record the selected boundary semantics in implementation notes after product confirmation.
 
-1. Load the subscription and the billing period being processed.
-2. Confirm that the subscription is eligible for billing and is not Paused.
-3. Check the subscription/billing-period uniqueness rule as an optimization only; the database constraint remains authoritative.
-4. Load the subscription's customer, plan context, payment terms, and subscription lines.
-5. Create invoice lines from the subscription lines without asking Staff to retype them.
-6. Resolve each product's associated tax and copy the applicable rate to its invoice line.
-7. Obtain eligible discounts from M6 and include their breakdown.
-8. Include pending proration adjustments from M4 and show them on the invoice.
-9. Calculate subtotal, discounts, taxes, adjustments, and total using Decimal-based server logic.
-10. Derive the due date from the subscription's payment terms.
-11. Persist the invoice and its lines transactionally.
-12. Record the result as Created in the active BillingRun.
+### 5.3 Minimum purchase amount
 
-The requirements say billing runs can auto-confirm invoices. The exact policy for whether generated invoices are Draft by default or auto-confirmed by a billing run must be represented consistently in the billing-run implementation. The source does not specify a global default beyond allowing the run to auto-confirm in the state machine; confirm this behavior before making it configurable or fixed.
+When `minimum_purchase_amount` is configured, compare it against the qualifying purchase amount for the discount's scope.
 
-### 5.4 Duplicate-billing protection
+The source does not explicitly define whether the qualifying amount is measured before tax, after tax, before other discounts, or after earlier stacked discounts. The calculation base must be confirmed and used consistently.
 
-This is a core data-integrity requirement.
+Do not use binary floating-point arithmetic.
 
-- Add a database `UniqueConstraint` on `(subscription, billing_period)` for invoices.
-- Do not rely only on a prior existence query; two concurrent requests can pass a pre-check simultaneously.
-- If the insert hits the unique constraint, catch the narrow `IntegrityError`, roll back the failed unit of work as needed, record the subscription as Skipped, and include a reason such as “This billing period has already been invoiced.”
-- A Cancelled invoice still occupies the subscription/billing-period uniqueness slot.
-- A billing rerun must not create a second invoice for a period already represented by Draft, Confirmed, Paid, or Cancelled invoice records.
-- Do not provide a “regenerate” action for a period already billed.
+### 5.4 Minimum quantity
 
-The source explicitly states that a cancelled invoice's period remains billed and must not be billed again. Do not implement replacement invoice generation for that same period unless the business rule is changed.
+When `minimum_quantity` is configured, compare it against the qualifying quantity for the discount's scope.
 
-### 5.5 Paused subscriptions
+For selected-product scope, the likely candidate is the combined quantity of matching product lines. For whole-subscription scope, the likely candidate is the subscription's qualifying total quantity. These interpretations should be confirmed where product lines can have different units or fractional quantities.
 
-- Paused subscriptions must be excluded from billing runs.
-- A paused subscription must not receive a new invoice while paused.
-- M4 owns pause/resume and next-billing-date recalculation.
-- When the subscription resumes, M5 uses the recalculated billing date supplied by the subscription domain; it must not invent a separate pause-duration algorithm.
+Do not count unrelated products toward a selected-product rule.
 
-### 5.6 Tax calculation
+### 5.5 Per-customer usage limit
 
-- Tax comes only from the tax attached to each product (BR-8).
-- Every invoice line carries the product's applicable tax rate (FR-5.4).
-- The working assumption is that prices are tax-exclusive and tax is added on top (Open Item B / BR-13).
-- Use the shared money-rounding helper and Decimal values; never use Python floats for financial calculations.
-- The working rounding assumption is per line, two decimal places, half-up (Open Item J). This is not a finalized decision until confirmed.
-- Preserve the rate used on the invoice line so later product-tax edits do not rewrite historical invoices.
+- Usage is counted separately for each customer and each discount.
+- A customer's usage of one discount must not reduce their limit for a different discount.
+- Another customer's redemption must not affect the current customer's limit.
+- A rule stops applying to a customer once that customer's confirmed usage count reaches the configured limit.
+- Draft invoice generation must not increment the confirmed redemption count.
+- Confirmation must increment the count once for each applied discount redemption.
+- Repeated confirmation requests or concurrent confirmation attempts must not increment usage more than once for the same invoice/discount/customer combination.
 
-M5 must not add location-based tax logic or multiple tax jurisdictions; the source says tax is attached to the product.
+The requirements do not state whether a cancelled invoice restores usage. Treat this as an open decision; do not silently decrement the counter.
 
-### 5.7 Discounts
+### 5.6 Discount scope
 
-M6 owns discount rules and eligibility. M5 must consume the approved calculation result and render it clearly.
+**Selected products**
 
-- Apply eligible discounts automatically to the next invoice (FR-5.8).
-- Show applied discounts in the invoice breakdown.
-- Respect product-specific or whole-subscription scope as resolved by M6.
-- Do not apply expired, exhausted, or ineligible discounts; the coding standards say these should be skipped with a log entry rather than blocking invoice generation.
-- The working stacking order is fixed amount first, then percentage on the remainder (Open Item F).
-- The working combined cap is 100% of the amount, so the total cannot go below zero (Open Item A / BR-9).
-- Discount redemption counts increment when the invoice using the discount is confirmed (FR-6.8); coordinate the exact redemption call with M6 rather than incrementing from an unconfirmed draft.
+- Admin selects one or more products for the rule.
+- Only matching product lines are eligible for the discount.
+- The discount must not leak onto unrelated lines.
+- The calculation must retain a clear mapping between the discount amount and affected invoice lines.
 
-### 5.8 Proration adjustments
+**Whole subscription**
 
-M4 owns subscription changes and the calculation inputs; M5 includes pending adjustments in the next invoice.
+- The rule applies to the qualifying subscription amount as defined by the confirmed calculation policy.
+- The scope must be evaluated against the subscription represented by the invoice.
+- Do not apply the same rule twice by treating it as both a whole-subscription discount and a product-level discount.
 
-- Mid-cycle changes to quantity, plan, or add-ons produce a prorated charge or credit on the next invoice (FR-4.13).
-- Show proration adjustments as identifiable invoice detail, not as an unexplained change to the subscription line total.
-- The working assumption is daily-basis proration, with downgrade credits applied to the next invoice (Open Item K).
-- Use the shared rounding rule (Open Item J) and server-calculated Decimal values.
-- Do not promise an immediate refund for a downgrade credit; the source assumption applies the credit to the next invoice.
-- Do not calculate authoritative proration in browser-only JavaScript.
+### 5.7 Multiple eligibility conditions
 
-### 5.9 Due-date calculation
+The source lists minimum purchase amount or minimum quantity, dates, and a per-customer usage limit. It does not explicitly state whether both minimum conditions may be configured together and must both pass, or whether the Admin must choose one.
 
-- Every invoice has a due date derived from the subscription's payment terms (FR-5.7).
-- Payment terms are Admin-managed configuration (M9), with examples such as Immediate, Net 15, and Net 30.
-- M5 reads the selected payment term and applies its configured due-date rule.
-- Store the due date used by the invoice so later changes to a payment-term definition do not silently change an existing invoice.
+Until confirmed:
 
-The source does not define timezone handling, whether “Immediate” means the invoice date or same-day end-of-day, or the exact calendar-day/business-day convention. These details must be confirmed and implemented consistently.
+- Keep the model capable of representing both fields.
+- Treat each configured minimum as a condition that must pass.
+- Do not require either minimum to be populated unless product confirms that requirement.
+- Document the exact AND/OR policy before release.
 
-### 5.10 Overdue indicator
+---
 
-The requirements define:
+## 6. Calculation and stacking rules
+
+### 6.1 Required stacking order
+
+FR-6.9 defines the order:
+
+1. Apply all eligible fixed-amount discounts first.
+2. Apply eligible percentage discounts to the remaining amount.
+
+Within each type, the source does not specify a secondary ordering rule. Use a deterministic order, such as stable rule ID or creation order, only after the product team confirms it. Do not allow database row order to determine financial results accidentally.
+
+### 6.2 Calculation sequence
+
+A conceptual calculation for one eligible amount:
+
+1. Determine the eligible invoice amount for the rule's scope.
+2. Evaluate all configured eligibility conditions.
+3. Collect eligible fixed-amount discounts.
+4. Apply fixed discounts in a deterministic order.
+5. Do not allow the remaining eligible amount to fall below zero.
+6. Collect eligible percentage discounts.
+7. Apply each percentage to the remaining amount after earlier discounts.
+8. Cap the total discount at 100% of the eligible amount.
+9. Apply the project's approved monetary rounding helper.
+10. Return an itemized result for M5 to persist on the invoice.
+
+### 6.3 Fixed-amount discounts
+
+For a fixed discount:
+
+- The configured value represents a monetary amount.
+- The applied amount must not exceed the remaining eligible amount.
+- If the remaining amount is smaller than the configured fixed amount, apply only the remaining amount under the 100% cap working assumption.
+- A fixed discount must not create a negative line or invoice total.
+- Allocation across multiple matching lines requires a defined allocation policy; the source does not specify whether to apply to the first line, proportionally, or through another deterministic method.
+
+### 6.4 Percentage discounts
+
+For a percentage discount:
+
+- The configured value represents a percentage.
+- Calculate it against the remaining eligible amount after fixed discounts and any earlier percentage discounts.
+- Use Decimal arithmetic.
+- The total discount must remain within the 100% cap.
+- Do not calculate every percentage against the original pre-discount amount; FR-6.9 explicitly says percentage discounts apply to the remainder.
+
+### 6.5 Combined discount cap
+
+The working assumption for Open Item A is a 100% cap of the eligible amount, so the discounted amount cannot become negative.
+
+For a given eligible base:
 
 ```text
-overdue = today > due_date AND invoice.status != Paid
+total_discount <= eligible_amount
+remaining_amount = eligible_amount - total_discount
+remaining_amount >= 0
 ```
 
-Consequences:
+This assumption must be revisited if product confirms that “100” meant a fixed currency amount rather than 100%.
 
-- An invoice due today is not overdue under the stated rule.
-- Paid invoices are not overdue.
-- Draft, Confirmed, and Cancelled invoice treatment should follow the literal rule only if those records appear in the relevant invoice views; the product team should confirm whether Cancelled invoices should be excluded from overdue lists, because the stated formula excludes only Paid.
-- Display the due date and, if calculated by the application, the number of days overdue.
-- Use a consistent application/business timezone for the meaning of “today”; the source does not specify which timezone.
+### 6.6 Example: fixed followed by percentage
 
-Do not substitute a different overdue formula without a requirements decision.
+Illustrative example only:
 
-### 5.11 Invoice immutability
+- Eligible amount: 1,000.00
+- Fixed discount: 100.00
+- Percentage discount: 10%
 
-FR-5.10 is Should priority, and the coding standards additionally state that invoice totals are stored at confirmation time and historical invoices are not recomputed from current prices.
-
-Once Confirmed:
-
-- Financial totals and line values are immutable.
-- Product tax rates and applied discount/proration values used for the invoice remain historical values.
-- Corrections follow the cancel-only working assumption in Open Item I.
-- A cancelled invoice remains associated with its original billing period and that period is not re-billed.
-
-The source does not define a credit-note workflow. Do not add one to M5 without a product decision.
-
----
-
-## 6. Bulk billing runs
-
-### 6.1 Trigger methods
-
-A billing run can be started by:
-
-- Admin or Staff using the “Run billing now” action.
-- The approved scheduler using a protected Vercel Cron endpoint.
-
-Customers cannot start billing runs.
-
-### 6.2 Billing-run processing flow
+Calculation:
 
 ```text
-Start billing run
-       │
-       ▼
-Find due subscriptions
-       │
-       ▼
-Exclude paused / ineligible subscriptions
-       │
-       ▼
-Resolve billing period and check invoice uniqueness
-       │
-       ▼
-Generate invoice lines, tax, discounts, proration, due date
-       │
-       ▼
-Persist invoice transactionally
-       │
-       ▼
-Record Created / Skipped / Failed result
-       │
-       ▼
-Continue with next subscription
-       │
-       ▼
-Complete run and show summary
+Starting amount                 1,000.00
+After fixed discount              900.00
+10% of remaining amount            90.00
+Final discount                    190.00
+Remaining amount                  810.00
 ```
 
-### 6.3 Per-subscription isolation
+The percentage is calculated on 900.00, not the original 1,000.00.
 
-A failure for one subscription must not abort the full run.
+### 6.7 Example: cap prevents negative total
 
-For each subscription:
+Illustrative example only:
 
-1. Execute the required reads and writes in a bounded transaction.
-2. Catch only expected, narrow domain/database exceptions at the per-subscription boundary.
-3. Roll back that subscription's incomplete invoice work.
-4. Record Failed with a safe reason and relevant IDs.
-5. Log the exception with operational context.
-6. Continue to the next subscription.
+- Eligible amount: 500.00
+- Fixed discount: 400.00
+- Percentage discount: 50%
 
-Do not use a broad bare `except:` or silently swallow an exception. Unexpected failures must be logged and represented safely in the run outcome.
+Calculation:
 
-### 6.4 Billing-run result log
+```text
+Starting amount                   500.00
+After fixed discount              100.00
+50% of remaining amount             50.00
+Total discount                    450.00
+Remaining amount                   50.00
+```
 
-Every run must persist Created, Skipped, and Failed outcomes with reasons (FR-5.9).
+If the fixed discount alone exceeds the eligible amount, the applied fixed discount is capped at 500.00 and no remaining amount exists for later percentage discounts.
 
-Per-item fields required by the UI/UX specification:
+### 6.8 Tax interaction
 
-- Subscription number.
-- Customer.
-- Outcome: Created / Skipped / Failed.
-- Invoice number, if created.
-- Reason, especially for skipped or failed items.
+M5's requirements state that product tax is calculated from the tax attached to each product and that invoice prices are tax-exclusive under the current working assumption.
 
-Run-level information shown in the UI:
+M6 must not invent a separate tax policy. The exact order of discount allocation and tax calculation must be consistent with the invoice calculation contract and confirmed with M5. The invoice must display tax and discount detail without double-counting a discount or applying it twice.
 
-- Run date/time.
-- Trigger type (Scheduled or Manual).
-- Subscriptions processed.
-- Invoices created.
-- Subscriptions skipped.
-- Failures.
+### 6.9 Rounding
 
-The exact run-state enum is an implementation detail. The UI/UX document suggests In progress, Completed, Completed with failures, and Failed as useful presentations.
+- Use `DecimalField` and Python `Decimal`.
+- Never use `float` for money or percentage calculations.
+- Use the shared `money.round()` helper specified by `CODING_STANDARDS.md`.
+- The current working assumption in Open Item J is per-line rounding to two decimal places using half-up.
+- Ensure that the sum of displayed line discounts reconciles with the invoice-level discount total.
+- Test edge cases where rounding a percentage across multiple lines could differ from rounding once at invoice level.
 
-### 6.5 Manual billing UX
+### 6.10 Calculation result contract
 
-Before starting a manual run:
+M6 should return structured calculation data to M5, rather than writing invoice records directly.
 
-- Explain that the action processes all due subscriptions and may create invoices.
-- Require a deliberate action to start the run.
-- Prevent repeated clicks from launching duplicate work from the same UI submission where possible; database idempotency remains mandatory.
+Suggested result information:
 
-After completion:
+- Eligible discount identifiers.
+- Rejected/skipped discount identifiers and safe reason codes.
+- Applied discount type and configured value snapshot.
+- Application sequence.
+- Affected product/line scope.
+- Amount applied per affected line or eligible base.
+- Total applied discount.
+- Remaining eligible amount.
+- Any rounding/allocation metadata required to reproduce the result.
 
-- Show created, skipped, and failed counts.
-- Link to the detailed result log.
-- Make the result accessible after the user navigates away.
-- Do not imply that a partially failed run wholly failed if some invoices were successfully created.
-
-### 6.6 Batching and resumability
-
-The coding standards prohibit long-running background workers and in-process schedulers on Vercel. They specify protected Vercel Cron endpoints that call `tasks.py` entry points, and require long jobs to be batched and resumable.
-
-Therefore:
-
-- Do not introduce Celery workers, APScheduler, a message queue, or a separate event bus for M5.
-- Process a limited chunk per serverless invocation where execution limits require it.
-- Persist enough progress/result state to continue safely on a later invocation.
-- Make each invocation safe if repeated or overlapping.
-- Use database constraints and locking rather than in-memory run state.
-- Protect the cron endpoint with a secret such as `CRON_SECRET`; it must never be publicly callable without authentication.
-- The exact batch size, cron frequency, and continuation mechanism are not specified and must be configured for the deployment environment.
-
-### 6.7 Concurrency and idempotency
-
-- The database is the source of truth; Vercel functions are stateless and may run in parallel.
-- Use `transaction.atomic()` for invoice creation and related multi-step writes.
-- Use `select_for_update()` where a subscription, invoice, or related discount redemption can be changed concurrently.
-- The unique `(subscription, billing_period)` constraint is the final duplicate safeguard.
-- Handle a uniqueness `IntegrityError` as an already-billed/Skipped outcome, not as a fatal run error.
-- Scheduled runs must be safe if triggered twice or overlap.
-- Avoid duplicate emails or repeated external side effects when a job retries; email delivery must be coordinated through the notification/email boundary.
+The exact Python return type is implementation-specific. Keep it explicit, typed where practical, and covered by tests.
 
 ---
 
-## 7. User interface and screen behavior
+## 7. Redemption confirmation and concurrency
 
-Follow the shared UI/UX specification: persistent internal navigation, responsive layouts, permission-aware controls, readable status text, paginated tables, field-level validation, and clear feedback for every action.
+### 7.1 Confirmation-time increment
 
-### 7.1 Internal invoice list
+FR-6.8 requires the redemption counter to increment when an invoice using the discount is confirmed.
 
-Audience: Admin and Staff.
+The intended sequence is:
 
-Recommended columns:
+1. M5 prepares a draft invoice and its discount snapshots.
+2. The invoice is confirmed through the M5 invoice service.
+3. The confirmation transaction identifies the discounts actually applied to the invoice.
+4. For each applied discount, M6 increments the `(discount, customer)` usage record.
+5. The invoice confirmation and redemption increments commit atomically where they share the database transaction.
+6. If confirmation fails, the usage increment must not be committed.
 
-- Invoice number.
-- Customer.
-- Subscription number.
-- Invoice date.
-- Due date.
-- Total.
-- Status.
-- Overdue indicator.
+### 7.2 Exactly-once behavior
 
-Filters:
+The counter must not increment more than once for the same invoice/discount/customer redemption.
 
-- Status.
-- Overdue only.
-- Customer.
-- Date range.
-- Subscription.
+Use a database-backed idempotency design. A proposed implementation is a unique redemption-use record keyed by invoice and discount, alongside the aggregate `DiscountRedemption` counter. If a separate use record is not introduced, the invoice snapshot must still provide a reliable uniqueness boundary.
 
-Behavior:
+Do not rely only on a pre-check in application code.
 
-- Search by useful invoice/customer/subscription identifiers.
-- Sort relevant columns where useful.
-- Paginate results; do not load an unbounded invoice table.
-- Clicking a row opens invoice detail.
-- Keep filters when returning from a detail page where feasible.
-- Provide loading, empty, and error states.
-- Do not offer a regenerate action for a billing period already billed.
+### 7.3 Concurrent confirmations
 
-### 7.2 Invoice detail
+Two requests may attempt to confirm the same invoice, or different invoices may attempt to consume the final available use for the same customer and discount.
 
-Header:
+Use:
 
-- Invoice number.
-- Customer.
-- Status.
-- Due date.
-- Overdue indicator when applicable.
+- `transaction.atomic()` for the confirmation and usage update.
+- `select_for_update()` on the relevant invoice and redemption row where appropriate.
+- Database uniqueness constraints for per-invoice redemption identity.
+- A fresh usage-limit check while holding the relevant lock.
+- A clear domain exception or conflict outcome if the limit has been consumed before confirmation.
 
-Sections:
+If a draft invoice contains a discount that becomes exhausted before confirmation, the source does not define whether confirmation should fail, remove the discount and recalculate, or permit an already-generated draft to use it. This must be resolved before implementation.
 
-1. Customer billing details.
-2. Subscription reference and billing period.
-3. Invoice lines.
-4. Tax and discount breakdown.
-5. Proration adjustments.
-6. Subtotal and total.
-7. Payment history.
+### 7.4 Cancelled invoices
 
-Actions for Admin/Staff:
+The source explicitly says the redemption count increments when an invoice using a discount is confirmed. It does not say whether later cancellation restores the customer's usage.
 
-- Confirm.
-- Cancel.
-- Send by email.
-- Print / download PDF.
-- Record payment through the M7 workflow.
+Do not automatically decrement usage on cancellation without product approval. Record the policy as an open decision.
 
-Only actions valid for the invoice's current status and the actor's role should be shown as available.
+### 7.5 Rule edits after use
 
-### 7.3 Invoice creation presentation
+The source does not specify whether an Admin may edit a discount after it has been used, whether edits apply to existing drafts, or whether historical redemption records retain a snapshot of the rule.
 
-Invoices are generated from subscriptions. The UI must not ask Staff to retype invoice lines.
+Confirmed invoice snapshots must remain unchanged. The edit policy for active rules and draft invoices remains open.
 
-Show the generated:
+---
 
-- Billing period.
-- Subscription and customer.
-- Product lines and quantities.
-- Product tax rates.
-- Applicable discounts.
-- Proration adjustments.
-- Due date.
-- Final total.
+## 8. UI/UX behavior
 
-The server is authoritative for all calculations. Display read-only calculated values and do not trust client-submitted prices, tax rates, totals, or statuses.
+### 8.1 Navigation and audience
 
-### 7.4 Customer invoice list
+- Discounts appears in the internal application navigation.
+- The section is visible to Admin only.
+- Staff and Customers must not see discount-management navigation or controls.
+- The customer portal does not expose discount configuration.
 
-Customers see only their own invoices.
+### 8.2 Discount list
 
-Recommended columns:
+Recommended columns from `UI_UX.md`:
 
-- Invoice number.
-- Invoice date.
-- Due date.
-- Amount.
-- Status.
-- Overdue indicator.
-
-Customers can open, view, and print their own invoices. Do not expose Confirm, Cancel, Send, Record payment, or Run billing controls in the customer portal.
-
-### 7.5 Invoice PDF / print view
-
-The requirement supports printing (PDF), and the UI/UX source says customers and internal users can print/download invoices.
-
-The printable representation should include the invoice details needed to understand the charge: invoice number, customer billing details, subscription/billing period, line items, quantity, unit price, tax, discount/proration detail, subtotal, total, due date, and status where appropriate.
-
-The exact company branding, logo, legal text, tax identifiers, invoice-number format, PDF page layout, and storage/retention policy are not defined. Confirm these before treating them as required fields or building a template editor.
-
-Vercel deployment constraint: generated PDFs must not be stored persistently on the local filesystem. If PDFs need persistent storage, use approved external object storage. The source allows a PDF library such as WeasyPrint or ReportLab only after confirming Vercel bundle/system-library constraints; do not add a heavy dependency without review.
-
-### 7.6 Email sending
-
-- Admin/Staff can send an invoice by email.
-- Email delivery failure must not roll back the invoice or other completed business transaction.
-- Log delivery failure, mark it for retry, and expose delivery/retry state to internal users where available.
-- Avoid duplicate customer emails when a scheduled or manual operation is safely retried.
-- Never log secrets, tokens, reset links, or full payment details.
-
-The exact email provider, subject/body template, attachment-versus-link behavior, retry count, and sender identity are not specified by M5 and must follow the project's email-provider boundary and product configuration.
-
-### 7.7 Status presentation
-
-Use readable status labels; color must not be the only status indicator.
-
-| Status / flag | Presentation |
+| Column | Description |
 |---|---|
-| Draft | Neutral/pending label; can be confirmed or cancelled. |
-| Confirmed | Confirmed label; financial details read-only; can be paid or cancelled. |
-| Paid | Paid/success label; terminal state in the defined workflow. |
-| Cancelled | Cancelled label; terminal state; billing period remains billed. |
-| Overdue | Derived warning indicator when today is later than due date and status is not Paid under the stated formula. |
+| Name / identifier | Human-readable rule name. |
+| Type | Fixed amount or percentage. |
+| Value | Configured amount or percentage. |
+| Scope | Selected products or whole subscription. |
+| Validity dates | Start and end dates. |
+| Per-customer usage limit | Maximum confirmed uses per customer. |
+| Active / expired status | Eligibility-oriented status display. |
 
-### 7.8 Confirmation and feedback
+The source recommends an Active/Expired status but does not define whether this is a stored status or derived from dates and other rule state. Prefer a derived display unless a separate activation field is approved.
 
-- Confirming an invoice should clearly identify the invoice and total being confirmed.
-- Cancelling an invoice must require confirmation and warn that the billing period remains billed and will not be invoiced again.
-- Sending an invoice should show a visible result and delivery state where available.
-- Printing should open or provide the generated PDF using the approved project pattern.
-- Failed validation should preserve valid form input where possible.
-- Disable repeat submission while an action is processing, but do not rely on UI disabling for idempotency.
+List behavior:
 
----
+- Paginate results.
+- Provide a clear empty state when no discounts exist.
+- Display type and value unambiguously (for example, currency amount versus percentage).
+- Show validity dates in the agreed timezone/date format.
+- Do not expose unnecessary internal identifiers as the primary label.
+- Provide an Admin-only Create discount action.
+- Edit behavior must follow the approved rule-edit policy.
 
-## 8. Validation and error handling
+### 8.3 Discount create/edit form
 
-| Situation | Expected behavior |
+Fields specified in `UI_UX.md`:
+
+| Field | UI behavior |
 |---|---|
-| Subscription is not due | Do not generate an invoice; record a skip reason if it was considered by the run. |
-| Subscription is Paused | Exclude it from billing; record a clear skip reason when included in the run's considered set. |
-| Billing period already has an invoice | Skip and record “already billed” or equivalent reason. |
-| Existing invoice for period is Cancelled | Skip; explicitly explain that the cancelled period remains billed. |
-| Concurrent duplicate invoice attempt | Database unique constraint wins; catch `IntegrityError`, roll back that item, and record Skipped. |
-| Product has no usable tax association | Fail that subscription's invoice generation with a clear operational reason; do not silently invent a tax rate. The exact nullability rule should follow M2's approved model. |
-| Discount expired/exhausted/ineligible | Do not apply it; log/record the reason according to M6 behavior; do not block invoice creation solely for an ineligible discount. |
-| Proration data unavailable or invalid | Fail safely or follow the agreed M4/M6 integration contract; do not invent a charge or credit. |
-| Payment term missing or invalid | Do not fabricate a due date; report a per-subscription failure and resolve the configuration. |
-| Invoice total calculation error | Roll back the invoice item, log safely, and continue the run. |
-| Invalid invoice transition | Reject with a domain error and a friendly message. |
-| Confirmed invoice edit attempted | Reject changes to immutable financial fields. |
-| Paid or Cancelled invoice action attempted | Reject invalid actions; terminal states remain terminal. |
-| Customer requests another customer's invoice | Deny access without disclosing whether the invoice exists. |
-| Email delivery fails | Preserve invoice state, log the failure, and mark for retry. |
-| PDF generation fails | Show a safe error; do not alter invoice financial state. |
-| Billing run partially fails | Show Created, Skipped, and Failed outcomes separately; successful invoices remain successful. |
-| Cron endpoint called without valid secret | Reject the request; do not start billing. |
-| Database timeout during run | Log with context and retry only safe/idempotent work; allow later invocation to resume. |
+| Discount type | Required selector: Fixed amount or Percentage. |
+| Value | Required numeric/decimal input with type-aware label and validation. |
+| Minimum purchase amount | Optional amount condition, if allowed by the final condition policy. |
+| Minimum quantity | Optional quantity condition, if allowed by the final condition policy. |
+| Start date | Required or optional according to the confirmed date policy. |
+| End date | Required or optional according to the confirmed date policy. |
+| Per-customer usage limit | Required positive integer under the stated requirement. |
+| Scope | Required selector: Selected products or Whole subscription. |
+| Products | Show product selector only for Selected products scope. |
 
-Use domain exceptions for expected business failures, narrow exception handling, and Python's `logging` module. Never expose SQL errors, stack traces, or internal implementation details to users.
+Form behavior:
+
+- Changing scope to Whole subscription hides or clears selected-product values.
+- Changing scope to Selected products requires at least one product.
+- Show field-level validation messages.
+- Preserve valid entered values after a validation error.
+- Prevent duplicate submissions while a save is in progress.
+- Confirm consequential edits if they may affect active drafts or future invoices, once the edit policy is approved.
+- Do not imply that Staff can save the form.
+
+### 8.4 Discount preview
+
+The UI/UX source requires a preview of how the discount applies to an example eligible amount.
+
+Preview should show:
+
+- Example eligible amount.
+- Selected discount type and value.
+- Amount reduced.
+- Remaining amount.
+- For stacked previews, fixed discounts first and percentages against the remainder.
+- The 100% cap behavior.
+
+The preview is illustrative and must not create a redemption or alter customer usage. Clearly label sample values as an example, not a quote or invoice.
+
+### 8.5 Invoice presentation
+
+When M5 applies discounts:
+
+- Show applicable discounts in the invoice breakdown.
+- Show the discount name or snapshot label, type/value where appropriate, and applied amount.
+- Preserve the fixed-first / percentage-second order.
+- Show the subtotal, tax, discount, proration, and final total in a way that reconciles with M5's invoice calculation contract.
+- Do not expose internal rule-management controls to Customers.
+- Customer invoice views show only the customer's own invoice.
+
+### 8.6 Feedback and error states
+
+| Scenario | Expected UI feedback |
+|---|---|
+| Discount saved | Confirm success and show the saved rule. |
+| Invalid percentage | Explain the accepted range after it is confirmed; do not silently clamp user input. |
+| Invalid fixed amount | Explain that the value must be a valid positive amount. |
+| End date before start date | Show a field-level date-range error. |
+| Selected-product scope has no products | Require at least one product. |
+| Discount expired | Show an expired/ineligible state; do not apply it. |
+| Customer usage limit reached | Skip the discount and show a safe reason in internal billing detail if supported. |
+| Minimum amount/quantity not met | Skip the discount; do not block invoice generation. |
+| Discount calculation fails | Record a safe failure; do not silently produce a potentially incorrect invoice. |
+| Concurrent usage-limit conflict | Re-evaluate or report a clear business conflict; never overrun the limit silently. |
+| Unauthorized Staff/Customer request | Reject server-side and do not reveal protected management data. |
 
 ---
 
-## 9. Architecture and implementation guidance
+## 9. Business logic and service boundaries
 
-### 9.1 Approved architecture
+### 9.1 Suggested services
 
-Follow the project's Django modular-monolith architecture:
+Names are illustrative; follow existing app conventions.
 
-- Django current LTS.
-- PostgreSQL as the single source of truth.
-- Server-rendered templates with small targeted JavaScript where applicable.
-- Thin views; business logic in services; read/query logic in selectors.
-- No microservices, message queues, or event buses.
-- No long-running in-process background workers or schedulers on Vercel.
+- `create_discount(data, actor)`
+- `update_discount(discount, data, actor)`
+- `get_eligible_discounts(customer, subscription, invoice_context, as_of)`
+- `evaluate_discount_eligibility(discount, customer, invoice_context, as_of)`
+- `apply_stacked_discounts(eligible_amounts, eligible_discounts)`
+- `record_confirmed_redemptions(invoice, actor_or_system)`
+- `get_customer_discount_usage(discount, customer)`
+
+Avoid thin wrappers that add no policy. Keep business writes in services and complex reads in selectors.
 
 ### 9.2 Suggested app organization
 
-Adapt names to the repository's actual app layout; do not create duplicate layers if equivalent modules already exist.
+The coding standards explicitly include `apps/discounts/` for discount rules, redemptions, and the stacking engine.
 
 ```text
 apps/
-  invoices/
-    models.py          # Invoice, InvoiceLine, BillingRun, result records if owned here
-    services.py        # generation, totals, transitions, confirm/cancel/send orchestration
-    selectors.py       # invoice lists, detail queries, billing-run history
-    forms.py           # internal filters/actions if server-rendered
-    views.py           # thin request handlers
+  discounts/
+    models.py          # Discount, DiscountProduct, DiscountRedemption
+    services.py        # create/update, eligibility, stacking, redemption writes
+    selectors.py       # list/detail and eligibility/usage reads
+    forms.py           # Admin discount forms
+    views.py           # thin Admin request handlers
+    permissions.py     # Admin-only rule management
+    exceptions.py      # invalid rule / eligibility / redemption conflicts
+    admin.py
     urls.py
-    tasks.py           # bounded billing-run task entry point
-    permissions.py     # invoice and billing-run access rules
-    exceptions.py      # invalid transition / generation errors
-    pdf.py             # printable invoice rendering boundary, if needed
     tests/
-      test_generation.py
-      test_billing_runs.py
-      test_transitions.py
-      test_calculations.py
+      test_models.py
+      test_rule_validation.py
       test_permissions.py
-      test_pdf_and_email.py
+      test_eligibility.py
+      test_scope.py
+      test_stacking.py
+      test_redemptions.py
+      test_concurrency.py
 ```
 
-If the project has separate `billing` or `subscriptions` apps, place BillingRun orchestration according to existing ownership and keep invoice domain operations in one clear service boundary. Do not create an additional app solely to match this illustrative tree.
+Adapt this tree to the repository's actual app structure. Do not create duplicate modules if equivalent boundaries already exist.
 
-### 9.3 Service boundaries
+### 9.3 Dependency direction
 
-Suggested service responsibilities:
+- Views call services.
+- Services own write-side business logic.
+- Selectors own complex read/query logic.
+- Models hold fields, constraints, and simple properties.
+- M6 may depend on Accounts, Catalog, Subscriptions, and the invoice integration contract.
+- M5 calls M6's discount service at invoice-calculation/confirmation boundaries.
+- Avoid circular imports. In particular, do not make Catalog import from Discounts or Billing.
 
-- `generate_invoice_for_period(subscription, billing_period, actor_or_system)` — create one invoice from a subscription period; enforce eligibility and database uniqueness.
-- `run_billing_batch(run, batch_cursor_or_scope)` — process a bounded set of due subscriptions and append per-item results.
-- `transition(invoice, to_status, actor)` — validate and audit invoice status changes.
-- `confirm_invoice(invoice, actor)` — validate and confirm; freeze the financial snapshot and coordinate discount redemption confirmation with M6.
-- `cancel_invoice(invoice, actor, reason_if_supported)` — cancel under the state machine and preserve the billing-period uniqueness record.
-- `calculate_invoice_totals(lines, discounts, proration)` — use Decimal and the shared rounding helper; keep calculations deterministic.
-- `send_invoice(invoice, actor)` — call the configured email boundary after appropriate state/permission checks; delivery failure must not undo the invoice.
-- `build_invoice_pdf(invoice)` — render a printable representation without persistent local-filesystem dependence.
+### 9.4 M5 integration contract
 
-These are suggested responsibilities, not mandatory public function names. Keep abstractions small and consistent with existing project conventions.
+M5 owns invoice generation. M6 must provide a stable calculation and redemption interface.
 
-### 9.4 Database integrity and indexes
+At invoice-generation time:
 
-Use PostgreSQL constraints and indexes where appropriate:
+1. M5 supplies the customer, subscription, billing-period context, candidate invoice lines, qualifying quantities/amounts, and calculation date.
+2. M6 evaluates eligible rules.
+3. M6 returns ordered discount results and skipped-rule reasons.
+4. M5 persists the invoice financial snapshot and renders the discount breakdown.
+5. Invoice generation remains idempotent under M5's `(subscription, billing_period)` uniqueness rule.
 
-- `UniqueConstraint(subscription, billing_period)` on Invoice.
-- Appropriate foreign keys from Invoice to Subscription/Customer and InvoiceLine to Invoice/Product where the domain model supports them.
-- Check constraints for non-negative quantities/amounts only where compatible with legitimate credit/proration lines; do not prohibit valid negative credit adjustments by assumption.
-- Index invoice status, due date, customer, subscription, and invoice date/billing period according to actual query patterns.
-- Index BillingRun creation/start time and result lookups as appropriate.
+At invoice-confirmation time:
+
+1. M5 invokes M6 redemption confirmation as part of the invoice confirmation service.
+2. M6 increments usage exactly once for each applied discount.
+3. M5 and M6 use a shared transaction boundary where possible.
+4. If the discount usage limit is no longer valid at confirmation, apply the product-approved conflict policy; do not invent a silent fallback.
+
+M6 must not create invoices, change invoice status independently, or duplicate M5's billing-run orchestration.
+
+### 9.5 M4 integration
+
+M4 provides subscription and subscription-line context, including products and quantities. M6 uses that context for scope and minimum-condition evaluation. M4 must not duplicate discount rule CRUD or stacking calculations.
+
+### 9.6 M2 integration
+
+M2 owns products and variants. M6 references Products for selected-product scope and must validate that selected products exist and are eligible for use under the catalog's rules. M6 does not create or edit products.
+
+### 9.7 Transaction and database integrity
+
+Use PostgreSQL constraints and transactions for:
+
+- Unique `(discount, customer)` redemption aggregate.
+- Unique `(discount, product)` scope links.
+- Unique invoice/discount redemption identity if a redemption-use table is implemented.
+- Positive discount value and usage limit constraints where expressible.
+- Atomic rule updates where multiple related rows are changed.
+- Atomic redemption updates and invoice confirmation.
+
+A pre-check in application code is not a replacement for a database constraint.
+
+---
+
+## 10. Security, auditability, and operational behavior
+
+### 10.1 Authorization
+
+- Admin-only discount create/edit operations.
+- Server-side permission checks on every management endpoint.
+- Default-deny for Staff and Customer discount-management requests.
+- Customer identity is derived from the authenticated account, not submitted form data.
+- Customer-facing invoice and quotation discount detail is ownership-scoped.
+
+### 10.2 Input validation
+
+Validate all fields server-side:
+
+- Type enum.
+- Positive Decimal value.
+- Percentage range according to the confirmed policy.
+- Date ordering and boundary semantics.
+- Positive per-customer usage limit.
+- Minimum purchase amount.
+- Minimum quantity.
+- Scope enum.
+- Product existence and selection.
+- Consistency between scope and product links.
+
+Client-side validation is a usability aid only.
+
+### 10.3 Audit events
+
+The system's general requirements include an AuditLog entity and coding standards require audit entries for important state changes. Record at least:
+
+- Discount created.
+- Discount edited.
+- Discount activation/archive/deactivation, if implemented.
+- Discount redemption confirmed.
+- Any approved redemption reversal or correction.
+
+Audit records should identify the actor, affected rule/customer/invoice IDs, timestamp, and relevant before/after values. Do not log secrets or unnecessary personal data.
+
+Whether every automated redemption event is represented in the general AuditLog or only in the dedicated redemption record is an implementation detail; the operation must remain traceable.
+
+### 10.4 Logging
+
+Use Python's `logging` module.
+
+Useful context includes:
+
+- Discount ID.
+- Customer ID.
+- Subscription ID.
+- Invoice ID.
+- Reason code for a skipped or failed rule.
+
+Do not log full payment details, secrets, or unnecessary customer personal data. Do not use `print()`.
+
+### 10.5 Error handling
+
+Use narrow exception handling and domain-specific errors such as:
+
+- `InvalidDiscountRule`
+- `DiscountNotApplicable`
+- `DiscountUsageLimitReached`
+- `DiscountScopeMismatch`
+- `DiscountRedemptionConflict`
+
+Expected ineligibility is not an exceptional invoice-generation failure. Expired, exhausted, or ineligible discounts should be skipped and logged as required by the coding standards. Unexpected calculation or persistence failures must be surfaced safely and must not create incorrect financial records.
+
+---
+
+## 11. Data integrity and performance
+
+- PostgreSQL is the source of truth.
+- Use Decimal fields for monetary values and percentages.
+- Add indexes based on real query patterns, such as active/validity dates and redemption lookup by `(discount, customer)`.
 - Use `select_related` and `prefetch_related` to avoid N+1 queries.
-- Paginate all invoice and billing-run result lists.
+- Paginate the discount list and redemption history.
+- Evaluate a bounded set of candidate discounts rather than loading every rule and every redemption into memory.
+- Use database aggregation or focused selectors for usage counts.
+- Do not use process-local caches as the authority for usage limits.
+- Lock the relevant redemption record during the final usage-limit check and increment.
+- Keep calculations deterministic so the same inputs produce the same discount result.
+- Do not recompute confirmed invoice amounts from current discount rules.
 
-Every model change requires a migration. Never edit an applied migration. Use separate reversible data migrations where practical.
-
-### 9.5 Money handling
-
-- Use `DecimalField` for monetary values (the coding standards give `max_digits=12, decimal_places=2` as an example).
-- Never use `float` for prices, tax, discounts, proration, totals, or assertions.
-- Use the shared `money.round()` helper consistently.
-- The current working rounding assumption is per line, two decimals, half-up; confirm Open Item J.
-- Store totals at confirmation time and never recompute historical confirmed invoices from current product/subscription prices.
-- Currency is single-currency under the working assumption; the actual currency code is not specified in the source and must not be invented.
-
-### 9.6 Scheduler and Vercel
-
-- Use Vercel Cron to call a protected endpoint which invokes a `tasks.py` entry point.
-- Protect the endpoint with a secret header check such as `CRON_SECRET`.
-- No Celery worker, APScheduler in-process, or persistent local job state.
-- Batch and resume large runs within serverless execution limits.
-- Ensure safe re-runs and overlapping invocation behavior.
-- Do not write persistent invoice PDFs or billing state to local disk.
-- Run migrations as an explicit deploy step, not at request time.
-- Use environment variables for secrets and `DATABASE_URL`; production database connections require SSL and should use the project's pooler settings.
-
-### 9.7 Email and PDF dependencies
-
-- Email sending must be behind the project's email-provider boundary.
-- Email failure must not roll back invoice creation/confirmation.
-- Generated PDFs may use WeasyPrint or ReportLab only after confirming Vercel package size and system-library compatibility.
-- Do not add a new PDF or email package without checking whether the repository already has an approved dependency or implementation.
+The system-wide performance target is that every page responds in under two seconds at thousands of subscriptions. Validate discount queries as part of the broader billing performance tests; do not claim this target is met without measurement.
 
 ---
 
-## 10. Security, auditability, and privacy
+## 12. Acceptance criteria
 
-1. Enforce Admin/Staff invoice permissions on every view and service.
-2. Scope every customer-facing invoice query to the authenticated user's linked Customer record.
-3. Never retrieve a customer invoice by primary key alone and then rely on the template to hide it.
-4. Use ORM queries or parameterized queries; no raw SQL string formatting.
-5. Validate all request input. Never trust client-sent prices, tax rates, totals, statuses, billing periods, or ownership identifiers.
-6. Keep CSRF protection enabled for state-changing browser actions.
-7. Keep Django template auto-escaping enabled; do not render user-supplied content with `safe`/`mark_safe`.
-8. Do not expose stack traces, SQL errors, secrets, or internal logs to users.
-9. Do not log full payment details, secrets, tokens, or unnecessary personal data.
-10. Audit invoice status transitions, manual billing triggers, cancellation, and other consequential invoice actions with actor and timestamp.
-11. Scheduled billing must record a system actor or equivalent source identity.
-12. Confirmed invoice snapshots must remain stable when upstream catalog or subscription records change.
+M6 is acceptable when all applicable criteria below pass.
 
----
+### Rule management
 
-## 11. Acceptance criteria
+- [ ] Only Admin can create discount rules.
+- [ ] Staff and Customers cannot create or edit discount rules through UI or direct requests.
+- [ ] Admin can configure fixed-amount and percentage discounts.
+- [ ] Invalid values, dates, usage limits, and scope selections are rejected server-side.
+- [ ] Selected-product scope requires valid selected products.
+- [ ] Whole-subscription scope does not accidentally retain or apply selected-product restrictions.
 
-M5 is functionally acceptable only when the applicable criteria below are demonstrated.
+### Eligibility
 
-### 11.1 Invoice generation
+- [ ] Start and end dates are evaluated using the approved boundary and timezone policy.
+- [ ] Minimum purchase amount is evaluated against the approved calculation base.
+- [ ] Minimum quantity is evaluated against the correct scope.
+- [ ] Usage is counted per customer per discount.
+- [ ] A discount is not applied after expiry.
+- [ ] A discount is not applied after the customer's usage limit is reached.
+- [ ] Selected-product discounts affect only matching products.
+- [ ] Whole-subscription discounts use the approved subscription-level base.
 
-- [ ] A due eligible subscription can produce an invoice without Staff retyping customer or product-line information.
-- [ ] The invoice references the correct customer and subscription.
-- [ ] The invoice contains the billing period being processed.
-- [ ] Subscription lines are represented as invoice lines with correct quantities and unit prices.
-- [ ] Each invoice line carries the applicable product tax rate.
-- [ ] Subtotal, tax, discounts, proration adjustments, and total are calculated server-side using Decimal.
-- [ ] Due date is derived from the subscription's configured payment terms.
-- [ ] The generated invoice can be opened from the invoice list and subscription context.
+### Stacking and calculation
 
-### 11.2 Duplicate-billing safety
+- [ ] Multiple eligible discounts can stack.
+- [ ] Fixed-amount discounts are applied before percentage discounts.
+- [ ] Each percentage discount is calculated on the remaining amount.
+- [ ] The combined discount never exceeds the eligible amount under the 100% working assumption.
+- [ ] The discounted amount never becomes negative.
+- [ ] Decimal arithmetic and the shared rounding helper are used.
+- [ ] Applied discount detail reconciles with invoice totals.
 
-- [ ] PostgreSQL enforces uniqueness on `(subscription, billing_period)`.
-- [ ] A second attempt to invoice the same period cannot create another invoice.
-- [ ] A uniqueness conflict is handled as Skipped and logged with a reason.
-- [ ] A cancelled invoice still blocks a replacement invoice for that period.
-- [ ] A repeated billing run does not create duplicate invoices.
-- [ ] Concurrent billing attempts cannot bypass the database constraint.
-- [ ] Paused subscriptions are excluded from billing.
+### Invoice and redemption integration
 
-### 11.3 Invoice lifecycle
+- [ ] M5 automatically receives eligible discount results during invoice generation.
+- [ ] Invoice discount details are visible in the invoice breakdown.
+- [ ] Draft invoice generation does not increment confirmed usage.
+- [ ] Invoice confirmation increments each applied discount redemption exactly once.
+- [ ] Repeated confirmation attempts do not double-increment usage.
+- [ ] Concurrent confirmations cannot exceed a customer's usage limit.
+- [ ] Confirmed invoice snapshots remain unchanged after a discount rule is edited.
+- [ ] Expired, exhausted, and ineligible discounts are skipped without blocking unrelated invoice generation.
 
-- [ ] Draft can transition to Confirmed.
-- [ ] Draft can transition to Cancelled.
-- [ ] Confirmed can transition to Paid only through successful full payment in M7.
-- [ ] Confirmed can transition to Cancelled.
-- [ ] Invalid transitions are rejected.
-- [ ] Paid and Cancelled are terminal under the defined state machine.
-- [ ] Each transition writes an audit record with actor, from/to states, and timestamp.
-- [ ] Confirmed invoice financial fields cannot be edited.
+### Quality and operations
 
-### 11.4 Invoice actions
-
-- [ ] Admin and Staff can confirm valid Draft invoices.
-- [ ] Admin and Staff can cancel valid Draft or Confirmed invoices.
-- [ ] Cancellation warns that the period remains billed and cannot be regenerated.
-- [ ] Admin and Staff can send invoices by email.
-- [ ] Email failure does not roll back invoice state and is visible/logged for follow-up.
-- [ ] Admin and Staff can print/download invoice PDFs.
-- [ ] Customers can view and print only their own invoices.
-- [ ] Customers cannot confirm, cancel, send, record payment, or run billing.
-
-### 11.5 Billing runs
-
-- [ ] Admin and Staff can start a manual billing run.
-- [ ] The approved scheduler can start a protected scheduled run.
-- [ ] A billing run records trigger type and run timing.
-- [ ] A run records processed, created, skipped, and failed counts.
-- [ ] Each considered subscription has a Created, Skipped, or Failed result with a reason where applicable.
-- [ ] A failure for one subscription does not stop other subscriptions from being processed.
-- [ ] The result log remains accessible after the run completes.
-- [ ] Large runs are bounded/resumable within serverless execution limits.
-- [ ] Repeated or overlapping scheduled invocations are safe.
-
-### 11.6 Calculation and history
-
-- [ ] Tax is derived only from each product's tax association.
-- [ ] Eligible M6 discounts appear on the invoice automatically.
-- [ ] Pending M4 proration adjustments appear on the next invoice.
-- [ ] Confirmed totals are stored and do not change when current product or tax configuration changes.
-- [ ] Overdue status follows `today > due_date AND status != Paid` unless the requirement is formally revised.
-- [ ] The UI does not mark an invoice due today as overdue.
-
-### 11.7 Quality and security
-
-- [ ] Every customer invoice query is scoped to the authenticated customer.
-- [ ] Direct-ID access to another customer's invoice is denied without disclosing record existence.
-- [ ] State-changing actions use server-side permission checks and CSRF protection.
-- [ ] Invoice lists are paginated and avoid N+1 queries.
-- [ ] No persistent invoice/PDF data is written to Vercel local filesystem.
-- [ ] No secrets or full payment details appear in logs.
+- [ ] All migrations are present and no applied migration was edited.
+- [ ] Unit, integration, permission, and concurrency tests cover the acceptance criteria.
+- [ ] No secrets or unnecessary personal data are written to logs.
+- [ ] No unused imports, debug prints, placeholder functions, or dead code remain.
+- [ ] No unapproved dependencies or out-of-scope discount features are introduced.
+- [ ] Open decisions are documented and resolved or explicitly accepted before release.
 
 ---
 
-## 12. Test plan
+## 13. Test plan
 
-Use `pytest`, `pytest-django`, and `factory-boy`. Each service function must have success and at least one failure-path test. Tests must not call real external services. Money assertions must use `Decimal`, never float.
+Use `pytest` and `pytest-django` in line with `CODING_STANDARDS.md`. Use factories for users, customers, products, subscriptions, discounts, invoices, and redemption records. Tests must not call real external services. Money assertions must use `Decimal`, never float.
 
-### 12.1 Invoice generation tests
+### 13.1 Model and validation tests
 
-- Generate an invoice from a valid due subscription.
-- Verify customer, subscription, billing period, invoice date, due date, and line references.
-- Verify product, quantity, unit price, and product tax rate are copied correctly.
-- Verify calculated line totals, subtotal, tax, discount, proration, and invoice total.
-- Verify payment terms determine the due date.
-- Verify no manual invoice-line input is required from Staff.
-- Verify missing/invalid required source data fails safely and is recorded in the billing result.
+- Create a fixed-amount discount with a valid value.
+- Create a percentage discount with a valid value.
+- Reject unsupported discount types.
+- Reject zero and negative values.
+- Reject invalid percentage values according to the approved range.
+- Reject an end date before the start date.
+- Reject a zero or negative per-customer usage limit.
+- Reject selected-product scope with no products.
+- Reject references to nonexistent products.
+- Enforce unique `(discount, product)`.
+- Enforce unique `(discount, customer)` redemption aggregate.
 
-### 12.2 Uniqueness and idempotency tests
+### 13.2 Permission tests
 
-- Generate the same subscription period twice; assert one invoice only.
-- Attempt a second insert at the database constraint; assert graceful Skipped behavior.
-- Cancel the first invoice and rerun; assert no replacement invoice is created.
-- Run two concurrent generation attempts where practical; assert the unique constraint prevents duplication.
-- Repeat the same billing-run task; assert no duplicate invoice or duplicate side effect.
-- Verify paused subscriptions are excluded.
+- Admin can access the discount list and detail.
+- Admin can create a discount.
+- Admin can edit a discount, subject to the approved edit policy.
+- Staff receives a forbidden response for create/edit endpoints.
+- Customer receives a forbidden response for create/edit endpoints.
+- Anonymous users cannot access management endpoints.
+- Hiding a button does not replace server-side authorization.
 
-### 12.3 State-transition tests
+### 13.3 Eligibility tests
 
-- Draft → Confirmed succeeds.
-- Draft → Cancelled succeeds.
-- Confirmed → Paid succeeds only through the payment integration path.
-- Confirmed → Cancelled succeeds.
-- Draft → Paid is rejected.
-- Paid → Cancelled is rejected.
-- Cancelled → Confirmed/Paid is rejected.
-- Confirmed invoice financial-field edits are rejected.
-- AuditLog entries are written for each successful transition.
+- Discount is eligible on a valid date under the selected date-boundary policy.
+- Discount is rejected before its start date.
+- Discount is rejected after its end date.
+- Minimum purchase amount passes at the threshold.
+- Minimum purchase amount fails below the threshold.
+- Minimum quantity passes at the threshold.
+- Minimum quantity fails below the threshold.
+- Both configured minimum conditions follow the approved AND/OR policy.
+- Customer A's usage does not affect Customer B.
+- Usage of Discount A does not affect Discount B.
+- Discount is skipped when the customer's limit is reached.
+- Selected-product scope matches only selected products.
+- Whole-subscription scope uses the approved subscription base.
+- Ineligible discounts do not block invoice generation.
 
-### 12.4 Calculation tests
+### 13.4 Calculation and stacking tests
 
-- Product-specific tax rate is applied to the corresponding line.
-- Different product lines can carry different tax rates.
-- Tax uses Decimal arithmetic and the shared rounding helper.
-- Fixed discount is applied before percentage discount under the working assumption.
-- Combined discount is capped under the working assumption.
-- Expired/exhausted/ineligible discount is skipped without blocking invoice generation.
-- Positive proration charge is included on the next invoice.
-- Negative proration credit is represented correctly under the agreed invoice-line convention.
-- Rounding edge cases follow the confirmed rule.
-- Historical invoice totals remain unchanged after product price/tax changes.
+- Fixed amount is applied before percentage.
+- Percentage is calculated on the remaining amount.
+- Multiple fixed discounts follow the approved deterministic tie-break order.
+- Multiple percentage discounts follow the approved deterministic tie-break order.
+- Fixed discount larger than eligible amount is capped.
+- Stacked discounts cannot make the eligible amount negative.
+- Combined discount reaches but does not exceed the 100% cap.
+- Decimal rounding follows the shared helper.
+- Per-line and aggregate totals reconcile.
+- Product-scoped allocation does not affect unrelated lines.
+- Tax interaction matches the approved M5 calculation contract.
+- Zero eligible amount produces no negative discount.
 
-### 12.5 Billing-run tests
+### 13.5 Redemption tests
 
-- Manual Admin trigger succeeds.
-- Manual Staff trigger succeeds.
-- Customer cannot trigger a billing run.
-- Scheduled endpoint rejects a missing/invalid cron secret.
-- Scheduled endpoint accepts a valid secret and starts the task.
-- Run summary counts match per-item outcomes.
-- One subscription failure does not prevent later subscriptions from being processed.
-- Skipped and failed results include reasons.
-- A batch can resume after a simulated timeout or interrupted invocation.
-- Overlapping invocations do not duplicate invoices.
+- Draft invoice generation does not increment usage.
+- Confirming an invoice increments usage once.
+- Confirming an invoice with two discounts increments each relevant discount once.
+- Repeating the confirmation request does not increment twice.
+- A failed invoice confirmation does not commit a redemption increment.
+- Concurrent confirmations cannot exceed the per-customer limit.
+- A duplicate redemption-use record is rejected by the database constraint.
+- Cancellation follows the explicitly approved usage-restoration policy.
+- Editing a discount does not alter confirmed invoice snapshots.
 
-### 12.6 Invoice action and access tests
+### 13.6 Integration tests
 
-- Admin/Staff can confirm, cancel, send, and print where state permits.
-- Customer can list and view own invoices.
-- Customer cannot access another customer's invoice by changing the ID.
-- Customer cannot confirm, cancel, email, or record payment.
-- Email provider failure leaves invoice state intact and records retry/failure status.
-- PDF generation failure returns a safe error without changing invoice state.
-- Cancellation confirmation communicates that the period remains billed.
+- M5 passes the correct customer, subscription, line, quantity, amount, and date context to M6.
+- M6 returns a deterministic ordered calculation result.
+- M5 persists the discount snapshot and presents the applied amount.
+- M5 confirmation calls the redemption service within the correct transaction boundary.
+- A skipped discount is recorded with a safe reason and does not stop the billing run.
+- An unexpected discount calculation failure is handled safely and does not produce a silently incorrect invoice.
+- Existing M5 invoice idempotency remains intact.
 
-### 12.7 Performance and query tests
+### 13.7 Performance tests
 
-- Invoice list is paginated.
-- Common filters use appropriate indexes where query plans justify them.
-- Invoice detail does not produce avoidable N+1 queries.
-- Billing batches process a representative hundreds-of-subscriptions fixture without exceeding configured execution limits.
-- Verify page performance against NFR-1 in a representative environment; do not claim the two-second target without measurement.
+- Discount list is paginated.
+- Eligibility lookup avoids N+1 queries.
+- Redemption usage lookup uses indexed fields.
+- Candidate rule evaluation remains bounded under realistic rule counts.
+- Billing performance is measured with thousands of subscriptions and representative discount data.
 
-### 12.8 Suggested commands
+### 13.8 Required project checks
+
+Run using the repository's actual environment and scripts:
 
 ```bash
 ruff check .
@@ -982,134 +961,151 @@ python manage.py makemigrations --check --dry-run
 pytest
 ```
 
-Run commands using the project's actual environment and scripts. Record any command that cannot be run and why; do not claim a check passed without executing it.
+Also run the project's dependency audit before release, as required by the coding standards. Record any check that could not be run and the reason; do not claim it passed without execution.
 
 ---
 
-## 13. Open decisions and assumptions
+## 14. Open decisions and assumptions
 
-The following items are taken from the source requirements/UI specification. They are not silently promoted to finalized product policy.
+The following points are not fully specified by the source documents. They must remain visible rather than being silently treated as settled requirements.
 
-| ID | Decision / uncertainty | Current source assumption or guidance | M5 impact |
+| # | Topic | Source position / working assumption | Decision needed |
 |---|---|---|---|
-| A | Does the discount cap mean 100% or 100 currency units? | 100% cap; total cannot go below zero. | Discount and total calculation. |
-| B | Are prices tax-inclusive or tax-exclusive? | Tax-exclusive; tax added on top. | Invoice line and total calculation. |
-| C | Dunning cadence and final action? | Reminders at 1, 7, and 14 days past due; then auto-pause. | Overdue display and reminder integration; policy is owned outside M5. |
-| D | Single currency and single company? | Yes, as working assumption. | Currency display and invoice header. |
-| F | Discount stacking order? | Fixed amount first, then percentage on the remainder. | Invoice discount breakdown. |
-| G | Payment-term options? | Admin-managed list, examples Immediate, Net 15, Net 30. | Due-date derivation. |
-| I | How are mistakes on confirmed invoices corrected? | Cancel only; period remains billed. | Cancellation warning and no replacement invoice. |
-| J | Tax/proration rounding rule? | Per line, two decimals, half-up. | Invoice totals and calculation tests. |
-| K | Proration method and downgrade credit handling? | Daily basis; credit applied to next invoice. | Invoice adjustments. |
+| 1 | Meaning of cap “100” | Open Item A working assumption: 100% of eligible amount. | Confirm percentage cap versus 100 currency units. |
+| 2 | Date boundaries | Start/end dates exist; inclusivity is not explicit. | Confirm inclusive/exclusive boundaries and timezone. |
+| 3 | Date used for eligibility | Not specified. | Invoice date, billing-period date, confirmation date, or another date? |
+| 4 | Minimum purchase base | Not specified. | Before/after tax, before/after other discounts, and scoped amount. |
+| 5 | Minimum quantity | Not specified for mixed product lines or fractional quantities. | Define quantity aggregation and unit compatibility. |
+| 6 | Both minimum conditions | Requirements list minimum purchase amount or minimum quantity. | Can both be configured, and if so are they AND or OR? |
+| 7 | Required minimum condition | Not stated whether at least one minimum must be configured. | Are date and usage limit alone sufficient? |
+| 8 | Fixed discount allocation | Product-scope behavior is specified, allocation across multiple lines is not. | First matching line, proportional allocation, or another policy? |
+| 9 | Multiple discounts within same type | Type order is fixed; tie-break order is not. | Choose stable order (priority, creation order, or ID). |
+| 10 | Usage limit zero/unlimited | Per-customer limit is required. | Is unlimited usage supported, and how is it represented? |
+| 11 | Draft-to-confirmation race | Counter increments on confirmation. | If the limit is reached after draft generation, reject, recalculate, or honor draft snapshot? |
+| 12 | Cancelled invoice | Increment occurs on confirmation; reversal is not defined. | Does cancellation restore a customer's usage? |
+| 13 | Editing used rules | Edit UI is specified, but historical/draft behavior is not. | Restrict edits, version rules, or apply changes to future calculations only? |
+| 14 | Delete/archive/deactivate | Not specified. | Define lifecycle and behavior for rules already used. |
+| 15 | Stacking across scopes | Both product and whole-subscription scopes exist. | Define interaction where multiple scopes overlap. |
+| 16 | Tax interaction | M5 owns tax calculation; M6 discount-tax base is not fully specified. | Confirm tax calculation order and line allocation. |
+| 17 | Discount visibility in quotations | UI/UX mentions discounts in quotation detail, while FR-6.5 says next invoice. | Confirm whether quotations preview discounts and whether they consume no usage. |
+| 18 | Currency precision | Single currency is the working assumption; currency is not specified here. | Confirm currency and fixed discount precision. |
+| 19 | Redemption history UI | Usage tracking is required; exact Admin screen is not prescribed. | Decide whether to show per-customer redemption history and invoice links. |
+| 20 | Rule name uniqueness | UI suggests a name/identifier; uniqueness is not stated. | Decide whether duplicate names are allowed. |
 
-Additional M5 implementation decisions not fully specified by the source:
+### 14.1 Explicit assumptions to avoid
 
-1. Invoice-number format, prefix, sequence scope, and whether numbers are allocated at Draft creation or confirmation.
-2. Exact invoice date semantics and timezone.
-3. Exact billing-period representation and how periods are calculated for each plan frequency.
-4. Whether scheduled billing always auto-confirms generated invoices or creates Draft invoices by default.
-5. Exact payment-term day-count convention, timezone, weekend, and holiday behavior.
-6. Whether Cancelled invoices should appear in overdue lists. The literal overdue formula excludes only Paid, but the UI intent for Cancelled records is not explicit.
-7. Whether a missing product tax association is invalid at product creation (M2) or can be encountered at invoice generation.
-8. Exact invoice customer/address snapshot fields.
-9. PDF branding, legal/company details, storage/retention, and whether PDFs are generated on demand or stored externally.
-10. Email subject/body, sender identity, attachment-versus-link delivery, retry policy, and delivery-state model.
-11. Billing batch size, cron frequency, run continuation mechanism, and maximum execution window.
-12. Exact BillingRun status model and whether each per-subscription result is a separate table or structured data.
-13. Whether Staff can view all audit history; UI_UX marks global activity-log Staff access as a decision.
-14. Exact behavior for zero-total invoices or a fully discounted invoice; the source does not state whether these are auto-confirmed or treated specially.
-15. Exact treatment of negative invoice totals if proration credits exceed the current charge; do not assume a refund or carry-forward policy beyond the stated next-invoice credit assumption.
+Do not silently assume:
 
----
-
-## 14. Dependencies and implementation sequence
-
-### 14.1 Required upstream capabilities
-
-- M2 must provide products and product-to-tax associations.
-- M3 must provide plans and billing cadence/configuration.
-- M4 must provide subscription status, due/next billing date, customer, payment terms, subscription lines, pause/resume recalculation, and pending proration information.
-- M6 must provide eligible discount calculation and redemption confirmation behavior.
-- M9 must provide payment terms and the configured currency/company context.
-
-### 14.2 Downstream integrations
-
-- M7 consumes invoice totals and statuses for payment recording/collection and marks invoices Paid after successful full payment.
-- M7 owns overdue reminder/dunning workflow and payment-provider abstraction.
-- M8 consumes invoice and billing-run data for dashboards and reports.
-
-### 14.3 Suggested implementation order
-
-1. Confirm invoice/billing-period model fields and invoice-number strategy.
-2. Implement Invoice, InvoiceLine, BillingRun, and per-item result persistence with migrations.
-3. Add the unique `(subscription, billing_period)` constraint and supporting indexes.
-4. Implement Decimal calculation helpers and invoice-line snapshot behavior.
-5. Implement due-date calculation from PaymentTerm.
-6. Implement invoice generation for one subscription period.
-7. Implement invoice state machine, audit integration, and immutability checks.
-8. Implement bounded billing-run orchestration with per-item failure isolation and idempotency.
-9. Implement Admin/Staff invoice list/detail and billing-run result screens.
-10. Implement customer-owned invoice list/detail/print views with strict data isolation.
-11. Implement email and PDF boundaries using approved dependencies/services.
-12. Integrate M6 discounts, M4 proration, M7 payment state, and M8 reporting.
-13. Complete unit, integration, permission, concurrency, and performance tests.
-14. Verify deployment constraints and run the project's lint, migration, and test commands.
+- That 100 means a fixed amount of 100 currency units.
+- That date boundaries are inclusive without confirmation.
+- That eligibility is based on the current server date rather than invoice/billing date.
+- That minimum purchase amount is tax-inclusive or tax-exclusive without the M5 calculation contract.
+- That quantity can be summed across products with different units.
+- That fixed discounts are allocated to the first line or proportionally without approval.
+- That a draft invoice reserves a discount redemption.
+- That cancelling an invoice restores a redemption.
+- That editing a discount rewrites confirmed invoice history.
+- That Staff can manage discounts because they can run billing.
+- That customers can enter arbitrary coupon codes.
+- That a discount is applicable merely because its dates are valid; scope, conditions, and usage limit must also pass.
 
 ---
 
-## 15. Definition of Done
+## 15. Dependencies and implementation sequence
 
-M5 is ready for acceptance when:
+### 15.1 Upstream dependencies
 
-- [ ] FR-5.1 through FR-5.9 are implemented and verified.
-- [ ] FR-5.10 invoice immutability is implemented or its Should-priority deferral is explicitly approved and documented.
-- [ ] Invoice generation is driven by subscription data and requires no manual re-entry of invoice lines.
-- [ ] Tax, discounts, and proration are represented correctly on invoice lines/totals.
-- [ ] Due dates derive from payment terms.
-- [ ] Database-level duplicate-period protection is active and tested.
-- [ ] Cancelled invoices continue to block billing for their period.
-- [ ] Paused subscriptions are excluded.
-- [ ] Invoice transitions are centralized, validated, transactional, and audited.
-- [ ] Billing runs persist Created/Skipped/Failed results and continue after per-subscription failures.
-- [ ] Manual and protected scheduled triggers are available to authorized actors.
-- [ ] Billing work is batched/resumable and safe under retries/overlapping invocations.
-- [ ] Admin/Staff invoice and billing-run screens meet the UI/UX requirements.
-- [ ] Customers can view/print only their own invoices.
-- [ ] Email/PDF failures do not corrupt invoice financial state.
-- [ ] No secrets, stack traces, or unnecessary personal data are exposed in logs or UI errors.
-- [ ] All migrations are present; no applied migration was edited.
+- **M1 Authentication and User Management:** authenticated actor, Admin role, Customer identity, and server-side RBAC.
+- **M2 Product Catalog:** Product records for selected-product scope and product line references.
+- **M4 Quotation Templates and Subscriptions:** customer, subscription, subscription lines, products, quantities, and billing context.
+- **M5 Invoicing:** invoice generation, invoice-line/tax/proration calculations, invoice discount snapshots, confirmation transaction, and billing-run integration.
+- **M9 Taxes and Payment Terms:** tax configuration consumed by M5; M6 must not duplicate tax administration.
+
+### 15.2 Downstream consumers
+
+- **M5 Invoicing:** consumes eligibility and stacking results and calls redemption confirmation.
+- **M8 Reporting and Dashboard:** may consume discount totals/redemption information if reporting requirements define those measures.
+- **Audit/notification infrastructure:** records operational events where required; M6 does not own the general notification system.
+
+### 15.3 Suggested implementation order
+
+1. Confirm Open Items affecting the calculation base, date semantics, allocation, tie-break order, and confirmation-time usage race.
+2. Inspect the existing repository and align the `apps/discounts/` structure with current conventions.
+3. Implement Discount and selected-product scope models.
+4. Implement DiscountRedemption and any invoice/discount use idempotency record.
+5. Add database constraints and indexes.
+6. Implement model/form validation and Admin-only permissions.
+7. Implement discount list, create, edit, and preview screens.
+8. Implement eligibility selectors and service logic.
+9. Implement deterministic fixed-first, percentage-second stacking with Decimal arithmetic.
+10. Define and implement the M5 calculation result contract.
+11. Integrate M6 results into M5 draft invoice generation and invoice snapshots.
+12. Integrate confirmation-time redemption increments into the M5 confirmation transaction.
+13. Add concurrency and idempotency protections.
+14. Add invoice breakdown visibility and safe skip/failure feedback.
+15. Complete unit, permission, calculation, integration, concurrency, and performance tests.
+16. Run lint, formatting, migration checks, tests, and dependency audit.
+17. Document all remaining product decisions before release.
+
+---
+
+## 16. Definition of Done
+
+M6 is ready for acceptance when:
+
+- [ ] FR-6.1 through FR-6.9 are implemented and verified.
+- [ ] Only Admin can create and edit discount rules.
+- [ ] Fixed-amount and percentage types are supported.
+- [ ] Minimum purchase amount, minimum quantity, date window, and per-customer usage limit are evaluated according to confirmed policy.
+- [ ] Selected-product and whole-subscription scopes are supported.
+- [ ] Eligible discounts are applied automatically during the M5 invoice workflow.
+- [ ] Expired, exhausted, and ineligible discounts are skipped without blocking unrelated billing.
+- [ ] Multiple discounts stack in fixed-first, percentage-second order.
+- [ ] Percentage discounts apply to the remaining amount.
+- [ ] Combined discounts are capped according to the confirmed interpretation of Open Item A.
+- [ ] Monetary calculations use Decimal and the shared rounding helper.
+- [ ] Applied discounts are represented in the invoice breakdown and financial snapshot.
+- [ ] Redemption usage is tracked per customer per discount.
+- [ ] Usage increments only when an invoice using the discount is confirmed.
+- [ ] Confirmation retries and concurrent requests cannot double-increment or exceed the usage limit.
+- [ ] Confirmed invoice snapshots are not recalculated from edited rules.
+- [ ] Required permissions, auditability, and safe logging are in place.
+- [ ] Tests cover rule validation, eligibility, scope, stacking, cap, redemption, permissions, and concurrency.
+- [ ] Migrations are present and consistent.
 - [ ] `ruff check .`, `ruff format .`, `python manage.py makemigrations --check --dry-run`, and `pytest` pass, or any unavailable check is explicitly recorded with its reason.
 - [ ] No unapproved dependencies or out-of-scope features are introduced.
-- [ ] Open decisions affecting implementation are recorded for product confirmation.
+- [ ] All unresolved product decisions are recorded and approved or explicitly deferred.
 
 ---
 
-## 16. Developer self-review checklist
+## 17. Developer self-review checklist
 
-Complete this checklist when implementing M5, in line with `CODING_STANDARDS.md`.
+Complete this checklist when implementing M6, in line with `CODING_STANDARDS.md`.
 
 | Area | Review question | Status |
 |---|---|---|
-| File/component structure | Are models, services, selectors, views, forms, tasks, permissions, and tests placed according to the existing project structure? Are views thin? | To verify during implementation |
-| State management | Is PostgreSQL the source of truth? Are invoice transitions centralized, atomic, and audited? | To verify during implementation |
-| Billing integrity | Is `(subscription, billing_period)` protected by a database constraint? Are cancelled periods still treated as billed? | To verify during implementation |
-| Money handling | Are all financial calculations Decimal-based and routed through the shared rounding helper? | To verify during implementation |
-| Historical data | Are confirmed invoice totals and line/tax snapshots immutable? | To verify during implementation |
+| File/component structure | Are models, services, selectors, forms, views, permissions, and tests placed according to the existing project structure? Are views thin? | To verify during implementation |
+| State management | Is PostgreSQL the source of truth for rules and redemption usage? | To verify during implementation |
+| Calculation integrity | Are calculations Decimal-based, deterministic, fixed-first, and capped? | To verify during implementation |
+| Redemption integrity | Are usage increments atomic, idempotent, and protected against concurrent over-redemption? | To verify during implementation |
+| Historical data | Are confirmed invoice discount snapshots immutable? | To verify during implementation |
 | Unused imports / dead code | Are unused imports, variables, stubs, debug prints, and dead code removed? | To verify during implementation |
-| Dependencies | Were new PDF/email packages avoided unless justified, approved, pinned, and compatible with Vercel? | To verify during implementation |
-| Over-engineering | Were unnecessary abstractions, queues, worker systems, and speculative features avoided? | To verify during implementation |
-| Security | Are Admin/Staff permissions enforced server-side? Are customer queries ownership-scoped? Is the cron endpoint protected? | To verify during implementation |
-| Error handling | Are exceptions narrow, failures logged, and per-subscription billing failures isolated? | To verify during implementation |
-| Deployment | Are billing jobs bounded/resumable? Is persistent PDF storage external to the Vercel local filesystem? | To verify during implementation |
+| Dependencies | Were new packages avoided unless justified, approved, pinned, and compatible with Vercel? | To verify during implementation |
+| Over-engineering | Were coupon portals, campaign engines, configurable rule DSLs, and speculative features avoided? | To verify during implementation |
+| Security | Are discount management actions Admin-only on the server? Are customer records ownership-scoped? | To verify during implementation |
+| Error handling | Are expected ineligibility outcomes skipped cleanly, while unexpected failures are logged and surfaced safely? | To verify during implementation |
+| Performance | Are eligibility and redemption queries indexed, paginated where needed, and free of N+1 behavior? | To verify during implementation |
 
 ---
 
-## 17. Source of truth
+## 18. Source of truth and conflict handling
 
 This document is derived from the Brightloop Subscription Management System source documents:
 
-- `REQUIREMENTS.md` — M5 Invoicing (FR-5.1 through FR-5.10), business rules BR-4 through BR-14, invoice state machine in Section 7.2, non-functional requirements, core domain entities, and Open Items A–K.
-- `UI_UX.md` — Section 5.9 Invoices, Section 5.10 Billing Runs, invoice status/immutability and overdue behavior, customer invoice portal behavior, scheduled billing flow, validation/error states, and PDF/email feedback requirements.
-- `CODING_STANDARDS.md` — Django modular-monolith structure, service/selector boundaries, PostgreSQL constraints and transactions, Decimal money handling, invoice immutability, Vercel Cron and batching constraints, error handling, logging, and pytest standards.
+1. `REQUIREMENTS.md` — M6 Discounts (FR-6.1 through FR-6.9), role–permission matrix, BR-9 and BR-10, invoice discount integration in FR-5.8, and Open Items A, F, and J.
+2. `CODING_STANDARDS.md` — Django modular-monolith structure, `apps/discounts/` ownership, services/selectors boundaries, PostgreSQL constraints and transactions, Decimal money handling, concurrency, domain exceptions, logging, and pytest standards.
+3. `UI_UX.md` — Section 5.12 Discounts, Admin-only audience, list columns, create/edit fields, example preview, stacking explanation, and invoice discount presentation.
 
-Where these sources define behavior, this document preserves it. Where they leave a decision open, the uncertainty is recorded above instead of being silently replaced with an invented rule.
+`REQUIREMENTS.md` defines what the product must do. `CODING_STANDARDS.md` defines how implementation must be structured and validated. `UI_UX.md` defines the expected interface and interaction behavior.
+
+Where the sources define behavior, this document preserves it. Where the sources leave a decision open, the uncertainty is recorded in Section 14 instead of being silently replaced with an invented business rule. This document is an implementation baseline; it does not claim that M6 is already implemented.

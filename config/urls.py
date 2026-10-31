@@ -12,4 +12,5 @@ urlpatterns = [
     path("portal/subscriptions/", include("apps.subscriptions.portal_urls")),
     path("app/billing/", include("apps.billing.urls")),
     path("portal/invoices/", include("apps.billing.portal_urls")),
+    path("app/discounts/", include("apps.discounts.urls")),
 ]

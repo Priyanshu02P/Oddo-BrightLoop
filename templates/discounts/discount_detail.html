@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ discount.name }} · Discounts · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'discounts:discount_list' %}">Discounts</a> / {{ discount.name }}</p>
+<div class="head">
+  <h1>{{ discount.name }}
+    {% with label=discount.status_label %}
+      <span class="badge {{ label }}">{{ label|capfirst }}</span>
+    {% endwith %}
+  </h1>
+  <div class="actions">
+    <a class="btn secondary" href="{% url 'discounts:discount_edit' discount.pk %}">Edit</a>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:1rem">
+  <dl style="display:grid;grid-template-columns:12rem 1fr;gap:.4rem 1rem">
+    <dt>Type</dt><dd>{{ discount.get_discount_type_display }}</dd>
+    <dt>Value</dt>
+    <dd>
+      {% if discount.discount_type == "fixed" %}{{ discount.value|floatformat:2 }}{% else %}{{ discount.value|floatformat:2 }}%{% endif %}
+    </dd>
+    <dt>Scope</dt><dd>{{ discount.get_scope_type_display }}</dd>
+    <dt>Validity</dt><dd>{{ discount.start_date|date:"Y-m-d" }} – {{ discount.end_date|date:"Y-m-d" }}</dd>
+    <dt>Usage limit</dt><dd>{{ discount.usage_limit_per_customer }} per customer</dd>
+    {% if discount.minimum_purchase_amount %}
+      <dt>Min. purchase</dt><dd>{{ discount.minimum_purchase_amount|floatformat:2 }}</dd>
+    {% endif %}
+    {% if discount.minimum_quantity %}
+      <dt>Min. quantity</dt><dd>{{ discount.minimum_quantity }}</dd>
+    {% endif %}
+    <dt>Created by</dt><dd>{{ discount.created_by.email }} on {{ discount.created_at|date:"Y-m-d H:i" }} UTC</dd>
+    {% if discount.updated_by %}
+      <dt>Last updated by</dt><dd>{{ discount.updated_by.email }} on {{ discount.updated_at|date:"Y-m-d H:i" }} UTC</dd>
+    {% endif %}
+  </dl>
+</div>
+
+{% if discount.scope_type == "selected_products" %}
+<h2 style="margin-top:1.5rem">Applicable products</h2>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Product</th></tr></thead>
+    <tbody>
+      {% for dp in discount.discount_products.all %}
+        <tr><td>{{ dp.product.name }}</td></tr>
+      {% empty %}
+        <tr><td>No products linked.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<h2 style="margin-top:1.5rem">Redemption usage</h2>
+<p class="help">Total customers who have used this discount: {{ redemption_summary.total_customers }}</p>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Customer</th><th class="num">Uses</th><th>Last updated</th></tr></thead>
+    <tbody>
+      {% for r in discount.redemptions.all %}
+        <tr>
+          <td>{{ r.customer.user.email }}</td>
+          <td class="num">{{ r.usage_count }}</td>
+          <td>{{ r.updated_at|date:"Y-m-d H:i" }} UTC</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="3">No redemptions recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

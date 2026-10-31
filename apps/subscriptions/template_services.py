@@ -49,9 +49,7 @@ def _sync_lines(template, lines):
                 "Reload the page and try again."
             )
         if row["product"].is_archived:
-            raise InvalidLine(
-                f"“{row['product'].name}” is archived and can't be used on a line."
-            )
+            raise InvalidLine(f"“{row['product'].name}” is archived and can't be used on a line.")
         _apply(line, row, LINE_FIELDS)
     QuotationTemplateLine.objects.filter(pk__in=set(existing) - kept).delete()
 
