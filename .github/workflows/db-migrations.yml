@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - fix-migrate
   pull_request:
     branches:
       - main
+      - fix-migrate
 
 permissions:
   contents: read
