@@ -1,1102 +1,1115 @@
-# M4. Quotation Templates and Subscriptions
+# M5. Invoicing
 
-**Document type:** Feature specification and implementation baseline  
-**Product:** Brightloop Subscription Management System  
-**Module:** M4 — Quotation Templates and Subscriptions  
-**Source documents:** `REQUIREMENTS.md`, `UI_UX.md`, and `CODING_STANDARDS.md`  
-**Status:** Specification baseline; not a claim that the feature is already implemented
+**Project:** Brightloop Subscription Management System  
+**Module:** M5 — Invoicing  
+**Document type:** Current feature specification / implementation baseline  
+**Status:** Draft — pending confirmation of the open decisions listed below  
+**Primary source:** `REQUIREMENTS.md` v2.0  
+**Supporting sources:** `UI_UX.md` and `CODING_STANDARDS.md`
+
+> This document defines the expected behavior and acceptance baseline for M5. It does not claim that the feature has already been implemented. The requirements document remains the source of truth. Where the source documents are silent or explicitly leave a decision open, this specification records the gap instead of silently turning an assumption into a requirement.
 
 ---
 
 ## 1. Purpose and scope
 
-M4 manages the commercial agreement between a customer and Brightloop: reusable quotation templates, quotation creation and acceptance, subscription records and lines, subscription lifecycle actions, renewals, add-ons, and mid-cycle changes that generate proration adjustments.
+M5 generates and manages invoices from subscriptions. It automates the creation of invoice records for due subscription billing periods, calculates invoice lines and taxes from subscription/product data, applies eligible discounts and proration adjustments, determines due dates from payment terms, and provides operational billing-run history.
 
-The module connects the catalog and plan configuration to downstream invoicing and payment operations:
+The module must make billing reliable and repeatable. In particular, it must prevent duplicate invoices for the same subscription period, retain the fact that a cancelled invoice's period has already been billed, and isolate failures so one subscription does not stop an entire bulk billing run.
 
-**Products and plans (M2/M3) → quotation template / quotation → subscription → invoice and payment (M5/M7).**
+M5 owns invoice generation, invoice records, invoice lifecycle, invoice presentation, and billing-run records. Payment recording and collection are integrated with M7; discount rules are owned by M6; subscription lifecycle and line configuration are owned by M4.
 
-M4 owns subscription and quotation business state. It must not duplicate product, plan, tax, payment-term, discount, invoice, or payment administration owned by other modules.
+### 1.1 Goals
 
-### 1.1 In scope
+1. Generate invoices automatically from due subscriptions without requiring Staff to retype customer or product-line information.
+2. Process hundreds of due subscriptions in a bulk billing run initiated manually by Admin/Staff or by the scheduler.
+3. Guarantee at most one invoice per subscription per billing period through a database uniqueness constraint.
+4. Ensure a cancelled invoice does not make its billing period eligible for a replacement invoice.
+5. Calculate taxes from the tax attached to each product and retain the tax rate on each invoice line.
+6. Apply eligible discounts and proration adjustments to the next invoice.
+7. Derive invoice due dates from the subscription's payment terms.
+8. Support invoice confirmation, cancellation, email delivery, and PDF printing.
+9. Preserve confirmed invoice values as historical financial records.
+10. Provide an inspectable billing-run result log with Created, Skipped, and Failed outcomes.
+11. Keep invoice and billing operations auditable, transactional, idempotent, and safe under retries or concurrent requests.
 
-- Admin creation and editing of quotation templates.
-- Staff and Admin use of existing templates when creating subscriptions/quotations.
-- Template plan and product lines, plus validity period in days.
-- Creation of a subscription from a template, copying all lines into editable subscription lines.
-- Subscription identity, customer, plan, dates, payment terms, status, and lines.
-- Sequential, never-reused subscription numbers.
-- Quotation sending, customer review, acceptance, expiry, and decline/close behavior.
-- Subscription status transitions and visibility of current status to every team member.
-- Customer portal actions subject to plan lifecycle options: view, accept quotation, pause, resume, cancel, upgrade/downgrade, and quantity change.
-- Automatic and manual renewal flows.
-- Pause/resume billing behavior.
-- Add-on line additions/removals during a subscription's life.
-- Proration for mid-cycle quantity, plan, and add-on changes, applied to the next invoice.
-- Quote-expiry and renewal scheduled task entry points, following the project deployment standards.
+### 1.2 In scope
 
-### 1.2 Out of scope
+- Invoice creation from subscription billing periods.
+- Invoice and invoice-line data required by the requirements.
+- Customer and subscription references on invoices.
+- Product-line, quantity, unit-price, tax, discount, proration, subtotal, and total snapshots/calculations.
+- Due-date calculation from the subscription's payment terms.
+- Invoice status workflow: Draft, Confirmed, Paid, and Cancelled.
+- Admin/Staff invoice list, detail, confirm, cancel, send, and print actions.
+- Customer invoice list, detail, and print access for the authenticated customer's own invoices.
+- Scheduled and manually triggered bulk billing runs.
+- Billing-run history and per-subscription outcomes.
+- Duplicate-period protection and safe handling of cancelled invoices.
+- Invoice immutability after confirmation.
+- Integration points with M4 subscriptions, M6 discounts, M7 payments, and M8 reporting.
+- Automated tests for calculations, transitions, idempotency, access control, and failure isolation.
 
-The following belong to other modules or are not specified as M4 functionality:
+### 1.3 Out of scope
 
-- Product or variant creation and catalog administration (M2).
-- Plan creation, pricing configuration, availability dates, and lifecycle-option administration (M3).
-- Tax-rate administration and payment-term list administration (M9); M4 selects and references configured records.
-- Discount rule creation and redemption administration (M6). M4/M5 provide the subscription context needed for discount application.
-- Invoice creation, invoice status management, invoice PDF/email delivery, and billing-run administration (M5).
-- Payment recording or payment-provider implementation (M7). M4 invokes the renewal collection boundary but does not own payment records.
-- Dashboard and financial reporting (M8).
-- A customer-facing online payment action; the UI/UX source explicitly says not to assume this for the MVP.
-- Bulk subscription editing or bulk cancellation; not specified.
-- A generic workflow engine, message bus, microservices, or a new task queue. Coding standards require a Django modular monolith and prohibit unnecessary event-bus/queue architecture.
+The following are not M5-owned features and must not be treated as committed M5 functionality without a separate requirement:
+
+- Creating or editing subscriptions, plans, products, product variants, quotation templates, or subscription lines (M2/M3/M4).
+- Defining discount rules or redemption policy (M6); M5 consumes eligible discount results and records the invoice breakdown.
+- Recording payments, payment-method administration, payment-provider integration, or payment collection workflows (M7). M5 exposes the invoice state and integrates with payment outcomes.
+- Customer-facing online payment checkout. The UI/UX source explicitly says an online payment action is not specified for the MVP.
+- Dunning policy administration or reminder cadence configuration (M7 / product decision); M5 may expose invoice due/overdue information used by those workflows.
+- Revenue dashboards, financial reports, and CSV exports (M8), beyond providing accurate invoice data.
+- Credit notes, replacement invoices for cancelled periods, invoice amendments, or post-confirmation line editing. The working correction assumption is cancel-only, and the period remains billed.
+- Multi-currency, multi-company, jurisdictional tax, or customer-location tax logic. The source assumes one currency and one company, pending confirmation.
+- Inventory, fulfillment, shipment, or purchase-order processes.
+- A user-configurable invoice numbering format, invoice branding editor, or PDF template designer; these are not defined by the source requirements.
+- Bulk invoice cancellation, bulk editing, or a manual “regenerate this period” action.
 
 ---
 
 ## 2. Requirement traceability
 
-All FR-4 requirements below are marked Must (M) in `REQUIREMENTS.md`.
+All M5 requirements below are **Must (M)** except FR-5.10, which is **Should (S)** in `REQUIREMENTS.md`.
 
-| Requirement | Source requirement | M4 behavior / acceptance target |
+| Requirement | Source requirement | M5 behavior |
 |---|---|---|
-| FR-4.1 | Templates hold a predefined plan and product lines plus validity days. Admin creates/edits; Staff can use. | Admin-only template management; template selection available to Admin and Staff. |
-| FR-4.2 | A subscription can be created from a template; all lines are copied and editable. | Copy template plan and lines into subscription-owned records; later edits must not mutate the template. |
-| FR-4.3 | Subscription has unique number, customer, plan, start date, expiry date, payment terms. | Persist and validate all required subscription attributes; generate sequential never-reused number. |
-| FR-4.4 | Lines hold product, quantity, unit price, taxes, amount. | Store subscription lines and server-calculate line amounts/tax using product tax association and agreed monetary rules. |
-| FR-4.5 | Workflow: Draft → Quotation → Confirmed → Active → Closed. | Centralize and validate lifecycle transitions; support Paused as defined in Section 7. |
-| FR-4.6 | Every team member can see current subscription status. | Admin and Staff list/detail views expose status consistently. |
-| FR-4.7 | Customer portal actions: view, accept, pause, resume, cancel, upgrade/downgrade, quantity change; each depends on plan lifecycle options. | Enforce ownership, current state, and the associated plan option for every portal action. |
-| FR-4.8 | Automatic renewal; generate renewal invoice and attempt collection. Failure by due date sets `payment_failed`, emails customer, notifies Staff, and applies retry/grace rule. | Implement renewal orchestration and failure handling; integrate with M5/M7 and email boundary; make scheduled processing safe to retry. |
-| FR-4.9 | Manual renewal triggered by customer or Staff. | Provide Renew action only when manual renewal is enabled and the subscription is eligible. |
-| FR-4.10 | Paused subscription excluded from billing; resume recalculates next billing date. | Pause transition affects M5 billing eligibility; resume recalculates and persists next billing date. |
-| FR-4.11 | Customer accepts quote in portal; Quotation → Confirmed; expired quote cannot be accepted. | Validate expiry on the server at acceptance time and transition atomically. |
-| FR-4.12 | Add-ons are subscription lines and may be added/removed during subscription life. | Represent add-ons as subscription lines; apply eligibility and proration rules. |
-| FR-4.13 | Mid-cycle quantity, plan, or add-on changes create prorated charge or credit on next invoice. | Calculate daily-basis proration under current working assumption and persist adjustment for M5. |
-| FR-4.14 | Confirmed → Active on start date or first payment (Open Item H). | Use start date under the current documented working assumption; keep activation logic centralized. |
-| FR-4.15 | Subscription numbers sequential and never reused. | Use a concurrency-safe database-backed sequence/allocator; do not derive numbers from row count or reuse deleted values. |
+| FR-5.1 | Invoices are created automatically from subscriptions, with customer details, product lines, taxes, and totals prefilled. No manual typing. | Generate invoice records from subscription and related product data; prefill all supported billing information and calculate totals server-side. |
+| FR-5.2 | A bulk billing run processes all due subscriptions at once (hundreds per run). It can be triggered by the scheduler or manually by Admin/Staff. | Provide a manual Admin/Staff action and a protected scheduled entry point; process in bounded batches where needed. |
+| FR-5.3 | A unique constraint on (subscription, billing period) guarantees one invoice per period. A cancelled invoice still counts as billed for that period; the cycle is skipped and not re-billed. | Enforce a database-level unique constraint and treat a duplicate constraint conflict as a Skipped result. Include Cancelled invoices in the period-already-billed rule. |
+| FR-5.4 | Tax is calculated automatically from the tax attached to each product. Each invoice line carries its product's tax rate. | Copy the applicable product tax rate onto each invoice line and calculate tax using the shared money/rounding rules. |
+| FR-5.5 | Invoice actions: confirm, cancel, send (email), print (PDF). | Implement the four actions with role/state checks, safe feedback, and appropriate side-effect handling. |
+| FR-5.6 | Status workflow: Draft → Confirmed → Paid. Cancelled is a terminal side state. | Centralize and validate invoice transitions; Paid and Cancelled are terminal in the defined workflow. |
+| FR-5.7 | Each invoice has a due date derived from the subscription's payment terms. | Resolve the selected payment term and calculate/store the due date according to its configured rule. |
+| FR-5.8 | Applicable discounts (M6) and proration adjustments (FR-4.13) are applied automatically to the next invoice. | Consume eligible discount and pending proration data during invoice generation and show each adjustment on the invoice. |
+| FR-5.9 | Each billing run produces a result log (created, skipped, failed, with reasons). Failures in one subscription do not stop the rest of the run. | Persist run metadata and per-subscription outcomes; isolate each subscription's processing failure. |
+| FR-5.10 | Confirmed invoices are immutable (corrections via cancel and the rules in Open Item I). | Treat confirmed invoice financial/customer/line fields as immutable. Use cancellation under the current working assumption; this requirement is Should priority. |
 
-### 2.1 Related business rules and non-functional requirements
+### 2.1 Related business rules
 
-- **BR-3:** exactly one Plan and one Customer per Subscription.
-- **BR-6:** a Paused subscription is never billed; billing resumes from a recalculated date.
-- **BR-8:** tax comes only from the Product's tax.
-- **BR-11:** a quotation cannot be accepted after its validity period.
-- **BR-12:** Customers can perform only portal actions allowed by the Plan lifecycle options.
-- **BR-13:** prices are tax-exclusive; tax is added on top (working assumption in the requirements).
-- **BR-14:** one currency and one company are assumed, subject to the requirements' confirmation item.
-- **NFR-1:** pages respond in under two seconds with thousands of subscriptions.
-- **NFR-3 / NFR-7:** transactional, idempotent operations and safe scheduled-job retries.
-- **NFR-4:** server-side RBAC, customer data isolation, and common web-security protections.
-- **NFR-5:** status changes and relevant actions are audited with actor and timestamp.
-- **NFR-9:** email and scheduler integrations remain behind replaceable boundaries.
-- **NFR-10:** fixed-precision decimal money handling; never use floating point.
+- **BR-4:** One invoice per subscription per billing period, enforced by a database constraint.
+- **BR-5:** A cancelled invoice's period is considered billed and is not re-billed.
+- **BR-6:** A paused subscription is never billed; billing resumes from a recalculated date.
+- **BR-7:** Payment amount must equal invoice total (payment enforcement belongs to M7).
+- **BR-8:** Tax comes only from the product's tax.
+- **BR-9:** Total stacked discount never exceeds the cap; the default assumption is a 100% cap so totals never go below zero.
+- **BR-13:** Prices are tax-exclusive and tax is added on top (working assumption; Open Item B).
+- **BR-14:** The system uses a single currency and a single company (working assumption; Open Item D).
+
+### 2.2 Related non-functional requirements
+
+| ID | Requirement | M5 implication |
+|---|---|---|
+| NFR-1 | Every page responds in under 2 seconds with thousands of subscriptions on the books. | Paginate invoice lists, index common filters, avoid N+1 queries, and keep detail queries bounded. |
+| NFR-2 | A billing run handles hundreds of subscriptions per run without timeouts, using batching or background jobs. | Use bounded/resumable processing appropriate to Vercel execution limits. |
+| NFR-3 | Billing is transactional and idempotent; no duplicate or missed invoices. | Use database constraints, transactions, safe retry behavior, and per-subscription result tracking. |
+| NFR-4 | Server-side RBAC, customer data isolation, and protection against common web attacks. | Enforce invoice permissions and ownership in every view and service. |
+| NFR-5 | Status changes, billing actions, payments, and admin changes are logged with user and timestamp. | Audit invoice transitions and billing-run actions with actor/time context. |
+| NFR-7 | Scheduled jobs recover from failure and can be re-run safely. | Billing scheduler entry point must be idempotent and resumable. |
+| NFR-9 | Payment provider, email provider, and scheduler are behind interfaces so they can be swapped. | Keep email and scheduler dependencies behind existing project boundaries; do not implement payment-provider behavior inside M5. |
+| NFR-10 | Monetary values use fixed-precision decimals, never floating point. | Use Decimal-based calculations and a shared rounding helper. |
 
 ---
 
 ## 3. Roles and permissions
 
+M5 follows the role–permission matrix in `REQUIREMENTS.md` and `UI_UX.md`. The server is authoritative; hiding a button is not a security boundary.
+
 ### 3.1 Admin
 
 Admin can:
 
-- Create, view, and edit quotation templates.
-- Use quotation templates.
-- Create and manage subscriptions.
-- View subscription status, details, lines, linked billing history, and activity history.
-- Send quotations and perform permitted internal lifecycle operations.
-- Accept a quotation on behalf of a customer where the workflow permits it.
-- Manage subscription changes, renewal operations, and customer-facing actions as authorized by the business rules.
+- View all invoices and billing runs.
+- Confirm and cancel invoices.
+- Send invoices by email.
+- Print/download invoice PDFs.
+- Trigger a billing run manually.
+- Review billing-run summaries and per-subscription results.
+- Inspect invoice history and relevant audit events.
 
 ### 3.2 Internal Staff
 
 Staff can:
 
-- View and manage subscriptions for operational work.
-- Use existing quotation templates while creating a subscription/quotation.
-- Send quotations and monitor acceptance or expiry.
-- View current status and subscription history.
-- Perform permitted subscription operations and trigger manual renewal where allowed.
+- View invoices and billing-run results needed for day-to-day operations.
+- Confirm and cancel invoices.
+- Send invoices by email.
+- Print/download invoice PDFs.
+- Trigger a billing run manually.
+- Review created, skipped, and failed billing outcomes.
+- Follow up outstanding and overdue invoices.
 
-Staff cannot create, edit, or manage quotation templates. The UI must not present template-management controls to Staff, and server-side endpoints must deny direct attempts.
+Staff cannot change catalog, plan, tax, discount, or quotation-template configuration. Invoice generation must consume those records without exposing their administration through M5.
 
 ### 3.3 Customer
 
-Customer can access only their own subscription and quotation records. Through the portal, a Customer can:
+A Customer can:
 
-- View their subscriptions and current status.
-- Review and accept their own valid quotations.
-- View permitted subscription details and add-ons.
-- Pause, resume, cancel, upgrade/downgrade, change quantity, and request permitted add-on changes only when the selected Plan enables the relevant lifecycle action.
-- Trigger manual renewal where manual renewal is enabled and the subscription is eligible.
+- View only invoices belonging to their own Customer record.
+- Open invoice details.
+- Print/download their own invoice PDF.
+- View invoice number, invoice date, due date, amount, status, and overdue indicator.
 
-Customer cannot access another customer's data, create or edit quotation templates, run billing, record payments, or access internal dashboards/reports.
+A Customer cannot:
 
-### 3.4 Permission matrix for M4
+- Confirm or cancel invoices.
+- Send invoices by email through internal controls.
+- Record payments.
+- Run billing or access billing-run logs.
+- Access another customer's invoice by changing a URL, identifier, or request payload.
+
+The requirements do not specify a customer-facing online payment action. Do not add one to the MVP without an explicit scope change.
+
+### 3.4 Permission matrix
 
 | Action | Admin | Staff | Customer |
 |---|---:|---:|---:|
-| List/view quotation templates | Yes | No template management; may select/use | No |
-| Create/edit quotation templates | Yes | No | No |
-| Use a quotation template | Yes | Yes | No |
-| Create/manage subscriptions | Yes | Yes | Own records and permitted portal actions only |
-| View subscription status | Yes | Yes | Own subscriptions |
-| Send quotation | Yes | Yes | No |
-| Accept quotation | Yes, on behalf where permitted | Optional/on behalf where permitted | Own valid quotation |
-| Pause/resume/cancel | Subject to workflow and Plan options | Subject to workflow and Plan options | Own subscription, Plan option required |
-| Upgrade/downgrade/change quantity | Subject to workflow and Plan options | Subject to workflow and Plan options | Own subscription, Plan option required |
-| Add/remove add-ons | Subject to workflow and Plan options | Subject to workflow and Plan options | Own subscription, permitted action required |
-| Manual renewal | Yes, where eligible | Yes, where eligible | Own subscription, where enabled |
-| Automatic renewal job | System task under protected execution | No direct job administration implied | No |
+| List all invoices | Yes | Yes | No |
+| View any invoice detail | Yes | Yes | No |
+| View own invoice detail | Yes | Yes | Yes |
+| Confirm invoice | Yes | Yes | No |
+| Cancel invoice | Yes | Yes | No |
+| Send invoice email | Yes | Yes | No |
+| Print/download invoice | Yes | Yes | Own only |
+| Record payment | Through M7 workflow | Through M7 workflow | No |
+| Run billing manually | Yes | Yes | No |
+| View billing-run history/results | Yes | Yes | No |
 
-**Authorization rule:** the table is a capability boundary, not a substitute for checking state and Plan options. Every protected view, service operation, and object lookup must enforce authorization server-side. Default deny for unlisted capabilities.
+Any Admin/Staff actions performed on behalf of another user must be attributed to the authenticated internal actor in the audit record.
 
 ---
 
-## 4. Domain model and data requirements
+## 4. Domain model and data ownership
 
-The following is the logical model required by the source documents. Field names can follow repository conventions, but persisted behavior must remain equivalent. Do not create duplicate entities if the project already has equivalent models.
+The requirements identify `Invoice`, `InvoiceLine`, `Subscription`, `SubscriptionLine`, `Payment`, `BillingRun`, `Discount`, `DiscountRedemption`, `Tax`, `PaymentTerm`, `Notification`, and `AuditLog` as core domain entities. This section describes the M5-owned invoice and billing-run responsibilities without prescribing unapproved schema details.
 
-### 4.1 QuotationTemplate
+### 4.1 Invoice
 
-| Attribute | Required | Description / rule |
-|---|---:|---|
-| `id` | Yes | Database identifier. |
-| `name` | Yes | Human-readable template name; reject blank values. |
-| `plan` | Yes | Reference to one configured Plan. |
-| `validity_days` | Yes | Number of days the generated quotation remains valid. Must be a positive integer unless the product decision defines another boundary. |
-| `lines` | Yes | Predefined product lines associated with the template. |
-| `created_at`, `updated_at` | Recommended | Standard timestamps, if consistent with project conventions. |
-| audit metadata | Required behavior | Admin create/edit actions identify actor, object, operation, and timestamp through the shared audit mechanism. |
+An invoice represents the bill for exactly one subscription and one billing period.
 
-Template line data must carry the product and the commercial defaults needed to initialize subscription lines. The source specifies plan and product lines but does not enumerate a separate template-line schema or all editable line attributes. Reuse the subscription-line structure where appropriate, and confirm whether template lines need variant, quantity, unit-price override, or tax snapshot fields before fixing the schema.
+Required relationships and information supported by the source documents:
 
-### 4.2 Subscription
+- One subscription reference.
+- One customer reference, available from the subscription.
+- A billing-period identity sufficient to enforce one invoice per subscription period.
+- Invoice number.
+- Invoice date.
+- Due date derived from the subscription's payment terms.
+- Status: Draft, Confirmed, Paid, or Cancelled.
+- Invoice lines.
+- Subtotal, tax, discount, proration, and total values as applicable.
+- Links to payment history.
+- Creation/confirmation/cancellation metadata and audit history as required by the shared audit design.
 
-| Attribute | Required | Description / rule |
-|---|---:|---|
-| `id` | Yes | Database identifier. |
-| `number` | Yes | Sequential business identifier; unique and never reused. |
-| `customer` | Yes | Exactly one Customer (BR-3). |
-| `plan` | Yes | Exactly one Plan (BR-3). |
-| `start_date` | Yes | Start/activation date. |
-| `expiry_date` | Yes | Subscription expiry date. Exact relationship to Plan end date must follow confirmed business semantics. |
-| `payment_terms` | Yes | Reference to configured PaymentTerm. |
-| `status` | Yes | Controlled lifecycle status; use Django `TextChoices` or equivalent enum. |
-| `renewal_mode` | Yes, from Plan | Automatic or manual as configured on the selected Plan; avoid an independent conflicting setting unless the domain design requires a snapshot. |
-| `next_billing_date` | Required operationally | Used by billing and recalculated on resume; exact initial calculation follows billing rules. |
-| `payment_failed` | Optional flag | Additional boolean/status flag for automatic-renewal failure; not a lifecycle status. Cleared on payment. |
-| quotation validity metadata | Required for quote | Persist enough information to determine the quote's `valid_until` and reject late acceptance. |
-| audit timestamps | Recommended | Standard creation/update timestamps and shared audit events for transitions/actions. |
+The exact invoice-number format, whether invoice date is the billing-run date or a separately configured date, and the exact set of stored header snapshot fields are not specified. Confirm these before finalizing the model.
 
-The requirements explicitly list unique number, customer, plan, start date, expiry date, and payment terms. Other fields above are derived from required workflows and should be reconciled with existing project models before migration.
+### 4.2 InvoiceLine
 
-### 4.3 SubscriptionLine
+Each invoice line must preserve the financial basis used for that invoice:
 
-| Attribute | Required | Description / rule |
-|---|---:|---|
-| `id` | Yes | Database identifier. |
-| `subscription` | Yes | Parent Subscription. |
-| `product` | Yes | Product reference from M2. |
-| `quantity` | Yes | Positive quantity; exact decimal/integer precision should follow the product decision and existing catalog conventions. |
-| `unit_price` | Yes | Fixed-precision decimal. Server-authoritative, not trusted from the browser. |
-| `tax` / tax rate snapshot | Required behavior | Tax is sourced from the Product's tax (BR-8); invoice creation must preserve the applicable tax rate per invoice line under M5. |
-| `amount` | Yes | Server-calculated line amount; do not accept a client-computed total as authoritative. |
-| line type / add-on marker | Needed to distinguish add-ons if required | Add-ons are subscription lines (FR-4.12). Exact marker/schema may follow existing model design. |
+- Product reference or product identity.
+- Description/name snapshot sufficient to render historical invoices.
+- Quantity.
+- Unit price.
+- Product tax rate copied to the invoice line.
+- Line amount and tax amount.
+- Discount detail when a discount applies to the line or subscription.
+- Proration adjustment detail where applicable.
 
-### 4.4 Related entities owned elsewhere
+The requirements explicitly state that each invoice line carries its product's tax rate. The source does not prescribe whether tax amount, pre-tax line amount, and post-tax line amount are all separate persisted fields; select a consistent representation and document it.
 
-- `Plan` and lifecycle options: M3.
-- `Product`, `ProductVariant`, and product tax association: M2/M9.
-- `PaymentTerm`: M9.
-- `Invoice`, `InvoiceLine`, `BillingRun`: M5.
-- `Payment` and payment-provider boundary: M7.
-- `Discount` and `DiscountRedemption`: M6.
-- `AuditLog` and notification/email log: shared system entities.
+### 4.3 BillingRun
 
-M4 should use foreign keys and shared services rather than copy or reimplement those modules' administration responsibilities.
+A BillingRun records one bulk billing execution. It should provide enough information for Admin/Staff to inspect:
 
----
+- Run identifier.
+- Start and completion timestamps, where available.
+- Trigger type: Scheduled or Manual.
+- Actor for a manual run; system identity for a scheduled run.
+- Number of subscriptions processed.
+- Number of invoices created.
+- Number of subscriptions skipped.
+- Number of failures.
+- Per-subscription result entries with outcome, invoice reference when created, and reason for skip/failure.
 
-## 5. Quotation template management
+The exact run status enum and storage format for per-item results are implementation decisions. The UI/UX source suggests run states such as In progress, Completed, Completed with failures, and Failed, but explicitly treats the exact run-state model as an implementation detail.
 
-### 5.1 Template list
+### 4.4 Relationships with adjacent modules
 
-Admin-only management screen should provide:
-
-- Template name.
-- Associated Plan.
-- Validity period in days.
-- Product-line summary/count.
-- Search, pagination, and useful sorting.
-- Create and edit actions.
-
-The source specifies create and edit. It does not specify archive/delete behavior, template versioning, or whether an existing template can be deleted after use. Do not add destructive behavior without a product decision.
-
-### 5.2 Create/edit template form
-
-Capture:
-
-- Template name.
-- Plan selection.
-- Validity period in days.
-- One or more predefined product lines.
-
-Use searchable selects for long product/plan lists. Validate all values server-side. Display calculated line previews using server-calculated decimal values. If product or plan availability is date-dependent, validate against the selected subscription start date when the template is used; M3 owns plan availability rules.
-
-### 5.3 Template permissions
-
-- Admin can create and edit templates.
-- Staff can select and use existing templates in subscription creation, but cannot manage them.
-- Customer cannot access template management or template selection.
-- Deny unauthorized direct URL/API/service calls, even if the UI hides the relevant controls.
-
-### 5.4 Template copy semantics
-
-When a template is selected:
-
-1. Read the template and its current plan/lines.
-2. Validate that the Plan is usable for the intended subscription start date.
-3. Copy the Plan reference and all configured lines into the new subscription context.
-4. Make the copied subscription lines independently editable.
-5. Save the subscription and its copied lines atomically.
-
-Editing a template later must not silently alter already-created subscriptions or quotations. Historical subscription commercial values must remain stable according to the subscription/invoice snapshot rules; exact snapshot boundaries should align with M5's invoice immutability requirements.
-
----
-
-## 6. Subscription creation and management
-
-### 6.1 Create flow
-
-The UI/UX specification recommends this sequence:
-
-1. Select a Customer.
-2. Choose a Plan. Show only plans available for new subscriptions on the selected start date.
-3. Choose creation method: start blank or use a quotation template.
-4. Configure subscription lines: products, variants, quantities, and add-ons.
-5. Review pricing: unit prices, line amounts, taxes, and total.
-6. Set dates and payment terms.
-7. Save as Draft or create/send a Quotation, depending on the selected action.
-
-The system must validate the Plan's availability on the server; filtering options in the browser is not sufficient. M3 owns the availability configuration and lifecycle options.
-
-### 6.2 Subscription number generation
-
-- Generate subscription numbers sequentially.
-- A number must never be reused, including after deletion/closure or failed downstream operations.
-- Enforce uniqueness in PostgreSQL.
-- Use a database sequence or another concurrency-safe allocator. Do not calculate `MAX(number) + 1` without locking/atomic allocation.
-- Number allocation must remain safe under parallel Vercel function invocations.
-- Decide the display format/prefix separately; the requirements specify sequential uniqueness, not a literal format.
-
-### 6.3 Subscription detail
-
-Header:
-- Subscription number.
-- Customer.
-- Plan.
-- Current status.
-- Separate `payment_failed` warning when applicable.
-
-Suggested sections:
-- **Overview:** start date, expiry date, renewal mode, payment terms, next billing date.
-- **Subscription lines:** products, variants, quantities, prices, taxes, and add-ons.
-- **Billing history:** linked invoices.
-- **Activity history:** status changes and other audited actions.
-
-Every team member with internal subscription access must be able to see the current status (FR-4.6).
-
-### 6.4 Subscription list
-
-Recommended columns and filters from the UI/UX specification:
-
-- Subscription number.
-- Customer.
-- Plan.
-- Status.
-- Start/expiry or next billing information where useful.
-- Renewal mode.
-- Payment-failed indicator.
-
-Filters:
-- Customer.
-- Plan.
-- Status.
-- Renewal mode.
-- Payment-failed flag.
-
-Search:
-- Subscription number.
-- Customer name or email.
-
-Use pagination/server-side filtering. Avoid N+1 queries with `select_related` and `prefetch_related`.
-
-### 6.5 Editing subscription data
-
-The source allows copied lines to be editable and defines live quantity/plan/add-on changes. It does not fully specify unrestricted editing of every field after quotation or activation. Restrict editable fields according to the current state and lifecycle workflow; do not permit direct mutation of status, totals, or protected fields through arbitrary form payloads.
-
----
-
-## 7. Lifecycle and state transitions
-
-### 7.1 Canonical lifecycle
-
-The requirements define the main workflow:
-
-`Draft → Quotation → Confirmed → Active → Closed`
-
-Paused is an additional lifecycle state connected to Active. `payment_failed` is a separate flag, not a replacement lifecycle status.
-
-| From | To | Trigger | Validation / behavior |
-|---|---|---|---|
-| Draft | Quotation | Admin/Staff sends quotation | Calculate/persist validity deadline; send quotation through email boundary; record transition. |
-| Quotation | Confirmed | Customer accepts in portal | Must be customer's own quote and not expired; transition atomically. |
-| Quotation | Closed | Quotation expires or is declined | Scheduled expiry or permitted decline operation; preserve history. |
-| Confirmed | Active | Start date reached (current assumption) | Use shared transition service; activation on first payment remains an alternative only if Open Item H changes. |
-| Active | Paused | Customer/Staff pauses, if Plan allows; may also occur after grace period | Exclude from billing while paused. |
-| Paused | Active | Resume | Recalculate next billing date and resume eligibility. |
-| Active / Paused | Closed | Cancel, close early, plan end date/auto-close, or final renewal failure | Validate role, state, and relevant Plan lifecycle option. |
-
-### 7.2 Centralized transition service
-
-All subscription state changes must pass through one service function (for example, `transition_subscription(subscription, to_status, actor, ...)`). The exact name may follow repository conventions.
-
-The transition service must:
-
-1. Load/lock the subscription as needed (`select_for_update`).
-2. Check actor authorization and customer ownership.
-3. Check the current status and the allowed transition table.
-4. Check the relevant Plan lifecycle option (M3) for customer-triggered or plan-governed actions.
-5. Apply state-specific side effects, such as billing exclusion or next-date recalculation.
-6. Persist the change inside `transaction.atomic()`.
-7. Write an `AuditLog` entry with actor/system identity, from-status, to-status, and timestamp.
-8. Raise a domain exception for invalid transitions; views convert it to a safe user-facing response.
-
-Never assign `subscription.status` directly in views, forms, tasks, or unrelated modules.
-
-### 7.3 `payment_failed` flag
-
-- Set when automatic renewal collection fails or payment is not received by the due date, as specified by FR-4.8.
-- Display independently from the lifecycle status.
-- Clear when payment succeeds/is recorded according to the payment workflow.
-- Do not imply that the subscription is Paused or Closed unless its actual status has transitioned.
-- Show the next step or grace-period state when available.
-
-### 7.4 Plan lifecycle options
-
-M3 stores Plan lifecycle settings; M4 enforces them. For each customer action, validate:
-
-- Pause option before pausing.
-- Resume option/valid state according to the Plan configuration and transition rules.
-- Cancel/close-early option before early closure.
-- Renew option and renewal mode before renewal.
-- Upgrade/downgrade and quantity-change permissions before applying those changes.
-
-The requirements use lifecycle options as the permission gate but do not fully enumerate the exact option names for every portal action. Match the actual M3 model and confirm any missing option mapping; do not invent additional Plan flags.
-
----
-
-## 8. Quotation lifecycle and acceptance
-
-### 8.1 Sending a quotation
-
-- Admin/Staff can send a quotation from a Draft subscription.
-- Set the quotation validity period from the selected template's `validity_days` (or another explicitly approved source when no template is used).
-- Persist a deterministic `valid_until` value so acceptance and expiry jobs use the same deadline.
-- Send the quotation email through the project's email boundary.
-- Record send/transition activity and visible delivery state where available.
-- Email failure must not silently lose the business record or roll back unrelated committed data; log and mark for retry under the shared email pattern.
-
-The requirements define template validity days but do not specify the default validity period for quotations created without a template. Treat that as an open decision.
-
-### 8.2 Customer acceptance
-
-1. Customer opens their own quotation in the portal.
-2. System displays lines, Plan, dates, totals, and validity deadline.
-3. Acceptance is available only while the quotation is valid.
-4. On acceptance, server rechecks ownership, current status, and expiry.
-5. Transition Quotation → Confirmed atomically and audit it.
-6. Display confirmation and scheduled start date.
-
-Do not rely on a disabled browser button as the expiry check. A crafted request after expiry must be rejected.
-
-### 8.3 Expiry and decline
-
-- An expired quotation cannot be accepted (FR-4.11 / BR-11).
-- State machine defines Quotation → Closed when expired or declined.
-- Quote expiry is a scheduled task under the coding standards' Vercel Cron approach.
-- Expiry processing must be idempotent: repeated or overlapping runs must not duplicate transition/audit effects.
-- Decline action details and whether Customers have a dedicated decline control are not fully specified; confirm before implementing beyond the state-machine behavior.
-
-### 8.4 Quotation list and detail UX
-
-Quotation list recommended columns:
-- Quotation/subscription number.
-- Customer.
-- Plan.
-- Created date.
-- Valid until.
-- Status: awaiting response, accepted, expired, declined.
-
-Quotation detail should show:
-- Customer and Plan.
-- Subscription/product lines and pricing breakdown.
-- Created date and validity deadline.
-- Current quotation status.
-- Accept action for the owning Customer while valid.
-- Internal send/monitoring actions for Admin/Staff.
-
-Expired quotations show the expiry date and disabled acceptance. Status must be represented with text, not color alone.
-
----
-
-## 9. Renewal behavior
-
-### 9.1 Renewal mode source
-
-Plan M3 defines `renewal_mode` as `automatic` or `manual`, and a distinct lifecycle option determines whether renewal is permitted at all. M4 must honor both:
-
-- `allow_renew` (or the corresponding Plan lifecycle option) controls whether renewal is allowed.
-- `renewal_mode` controls how renewal is initiated.
-
-Automatic mode must not override a disabled Renew option.
-
-### 9.2 Automatic renewal
-
-FR-4.8 requires the system to:
-
-1. Identify an eligible subscription configured for automatic renewal.
-2. Generate the renewal invoice through M5's billing/invoice services.
-3. Attempt collection through M7's payment-provider boundary.
-4. If payment fails or is not received by the invoice due date, set `payment_failed`.
-5. Email the Customer.
-6. Notify Staff.
-7. Apply the configured grace-period/retry rule.
-8. After the final failure, pause or close according to the configured rule.
-
-The coding standards specifically require automatic-renewal failures to follow this behavior and never fail silently. Email failures must be logged/retried without rolling back the business transaction.
-
-### 9.3 Manual renewal
-
-- Customer or Staff opens an eligible subscription and selects Renew.
-- Validate that the Plan permits renewal, the mode is manual, the actor is authorized, and the current state permits the operation.
-- Start the renewal/invoice flow using M5 services.
-- Show the updated status and next step.
-
-The requirements specify the trigger but do not fully define the detailed manual-renewal sequence, whether renewal creates a new subscription record or extends the existing record, or exactly when the new term begins. These are product decisions; do not silently choose a data model that makes them irreversible.
-
-### 9.4 Grace period, retries, and final action
-
-The requirements' Open Item C contains a working assumption:
-
-- Reminders at 1, 7, and 14 days past due.
-- Then automatically pause.
-
-Other text describes retry N times and then pause or close, and the UI/UX says the final action remains configurable/open. Therefore:
-
-- Keep retry count, timing, and final action configurable rather than hard-coded into UI copy.
-- Treat 1/7/14 days and auto-pause as provisional working assumptions until confirmed.
-- Ensure notification and lifecycle effects are idempotent to avoid duplicate emails or repeated state transitions.
-
----
-
-## 10. Pause, resume, cancellation, and closure
-
-### 10.1 Pause
-
-- Pause only when the Plan permits it and the transition is valid.
-- Explain before confirmation that a paused subscription is excluded from billing runs.
-- Transition to Paused through the shared state service.
-- Record actor and timestamp.
-- M5 billing selection must exclude Paused subscriptions (BR-6 / FR-4.10).
-
-### 10.2 Resume
-
-- Resume only from Paused and when allowed by the Plan/workflow.
-- Recalculate and persist the next billing date.
-- The backend calculation is authoritative; show the updated schedule to the user.
-- Use the agreed proration/date calculation helpers rather than browser-only calculations.
-
-The exact formula for recalculating next billing date after a pause is not specified in the source documents and requires confirmation with the billing-period rules.
-
-### 10.3 Cancel / close
-
-- Customer-facing cancellation is subject to the Plan's lifecycle option.
-- Internal Admin/Staff actions must also obey valid state transitions and role permissions.
-- Closed is terminal in the documented state machine; display history read-only.
-- Do not conflate cancellation/early close with expiry of a quotation.
-- Exact effective date, immediate-vs-end-of-period cancellation, and any refund behavior are not specified; do not invent them.
-
----
-
-## 11. Add-ons, plan changes, quantity changes, and proration
-
-### 11.1 Add-ons
-
-- Add-ons are represented as SubscriptionLine records (FR-4.12).
-- A permitted add-on can be added or removed during the subscription's life.
-- Validate product eligibility and any relevant Plan/lifecycle permission on the server.
-- Recalculate subscription pricing using server-side decimal arithmetic.
-- Persist the change and its effective date/history so the next invoice can apply the correct adjustment.
-
-The source does not fully define whether every product can be an add-on, whether variant selection is mandatory, or whether add-on changes require approval. Follow existing catalog/product rules and record unresolved policy decisions.
-
-### 11.2 Upgrade/downgrade and quantity changes
-
-- Show current and proposed configurations side by side.
-- Preview the expected prorated charge or credit where possible.
-- Explain that the adjustment is applied to the next invoice.
-- Require confirmation before applying a change.
-- Validate Plan lifecycle options and current state.
-- Persist the change and proration detail for M5 to consume.
-
-Do not promise an immediate refund. The requirements' working assumption is that downgrade credits are applied to the next invoice.
-
-### 11.3 Proration calculation
-
-FR-4.13 requires mid-cycle changes to quantity, plan, or add-ons to produce a prorated charge or credit on the next invoice.
-
-Current working assumptions from `REQUIREMENTS.md`:
-
-- Daily-basis proration (Open Item K).
-- Downgrade credit is applied to the next invoice.
-- Tax and proration rounding is per line, two decimal places, half-up (Open Item J).
-
-Implementation requirements:
-
-- Use `Decimal` and shared money/rounding helpers; never float.
-- Keep the calculation in a server-side service, not browser-only JavaScript.
-- Record enough detail for the next invoice to explain the adjustment (change type, effective date, remaining/elapsed period basis, charge/credit amount, related subscription/line).
-- Apply the adjustment on the next invoice via M5's established invoice-generation path.
-- Avoid applying the same adjustment twice if a billing job is retried.
-- Add tests for mid-cycle upgrade, downgrade, quantity increase/decrease, add-on addition/removal, date boundaries, and rounding.
-
-The exact day-count convention (inclusive/exclusive boundaries, timezone/date basis, treatment of leap days, and partial first/last days) is not specified. Confirm before treating the calculation as final.
-
----
-
-## 12. Validation rules
-
-| Area | Required validation |
+| Entity/module | M5 responsibility boundary |
 |---|---|
-| Template name | Required; reject blank/whitespace-only values. |
-| Template Plan | Must reference an existing valid Plan. |
-| Validity days | Positive integer unless product confirms a different rule. |
-| Template lines | At least the required configured product lines; each Product reference must be valid. Exact minimum line count is not explicit and should be confirmed. |
-| Customer | Required; exactly one Customer per Subscription. |
-| Plan | Required; exactly one Plan per Subscription; validate availability on selected start date. |
-| Dates | Start date and expiry date required; enforce any confirmed ordering/Plan-boundary rules. |
-| Payment terms | Must reference an existing configured PaymentTerm. |
-| Subscription number | Generated by server; unique; never reused. Ignore client-supplied number. |
-| Quantity | Positive; exact numeric precision must follow agreed product rules. |
-| Unit price | Server-authoritative Decimal; do not trust client-submitted price. |
-| Tax | Source from the Product's configured tax; do not accept an arbitrary client tax rate. |
-| Line amount/total | Recalculate server-side using Decimal and shared rounding policy. |
-| Quote acceptance | Must belong to current Customer, remain in Quotation state, and not be expired. |
-| Lifecycle action | Actor authorized; valid current-state transition; Plan option permits action. |
-| Renewal | Renewal permitted by Plan; renewal mode matches selected flow; subscription eligible. |
-| Pause | Valid state and Plan option; paused records excluded from billing. |
-| Resume | Valid Paused state; recalculate next billing date. |
-| Add-on/change | Validate product/Plan eligibility, state, permissions, and effective date. |
-| Proration | Server-calculated Decimal; adjustment recorded once and consumed once by next invoice. |
+| M2 Product Catalog / Tax | Read product identity, sales price, and associated tax. Preserve the applicable product tax rate on the invoice line. M5 does not manage products or tax rates. |
+| M3 Plans | Consume billing cadence/plan context through the subscription. M5 does not configure plans. |
+| M4 Subscriptions | Select due, eligible subscriptions and copy their customer, plan, and subscription-line information into an invoice. Exclude paused subscriptions. |
+| M6 Discounts | Ask the discount domain/service for eligible discounts and include the resulting discount breakdown on the invoice. M5 does not own discount rules or redemption eligibility. |
+| M7 Payments | Expose invoice totals and state for payment recording/collection. Successful full payment moves Confirmed → Paid through the invoice transition service. |
+| M8 Reporting | Provide invoice, due-date, total, status, and billing-run data for reporting. |
+| M9 Configuration | Read payment terms and configured currency/company context. |
+
+### 4.5 Historical snapshot rule
+
+The coding standards state that invoice totals are stored at confirmation time and historical invoices must not be recomputed from current prices. M5 must therefore retain the financial values used when an invoice is confirmed. Later edits to a product, tax rate, subscription line, discount rule, or plan must not silently alter an already confirmed invoice.
+
+The exact snapshot strategy for customer billing address/name and product descriptions should be aligned with the project's invoice model before implementation; the source requires customer details to be prefilled but does not enumerate every snapshot field.
 
 ---
 
-## 13. UI/UX behavior
+## 5. Invoice lifecycle and business logic
 
-### 13.1 Navigation and page layout
+### 5.1 Status workflow
 
-- Internal app uses persistent left sidebar on desktop, compact header, and main content; collapse sidebar into a navigation drawer on smaller screens.
-- Internal navigation includes Subscriptions and Quotations for Admin/Staff.
-- Quotation Templates management is Admin-only.
-- Customer portal uses simplified navigation: Overview, My subscriptions, My quotations, My invoices, Account/security.
-- Use tables for operational lists and cards for high-level metrics; preserve filters when returning from detail where feasible.
-- Provide loading, empty, error, and success states.
-
-### 13.2 Status presentation
-
-Use readable text labels and do not communicate state by color alone.
-
-| Record | Status / flag | Presentation |
-|---|---|---|
-| Subscription | Draft | Not yet sent; edit/send quotation actions where allowed. |
-| Subscription | Quotation | Awaiting customer response; show expiry. |
-| Subscription | Confirmed | Accepted; awaiting start date. |
-| Subscription | Active | Active subscription; show permitted management actions. |
-| Subscription | Paused | Billing paused; show resume action if allowed. |
-| Subscription | Closed | Closed/terminal; read-only history. |
-| Subscription | `payment_failed` | Separate prominent warning; not a lifecycle status. |
-| Quotation | Valid / expired / declined | Show validity date and acceptance availability. |
-
-Suggested semantic colors from the UI/UX source may be used, but always pair color with text and accessible contrast.
-
-### 13.3 Forms and feedback
-
-- Group fields by purpose and mark required fields.
-- Show field-level validation and preserve valid input after errors.
-- Use searchable selects for Customers, Products, and Plans.
-- Show calculated values as read-only previews where appropriate.
-- Display money with configured currency and two decimal places; currency is not specified in the source.
-- Destructive actions require confirmation.
-- No silent failures: saves, sends, renewals, and lifecycle actions must return visible outcomes.
-
-### 13.4 Subscription lifecycle UX
-
-- Draft: Edit and send quotation.
-- Quotation: Customer can accept while valid; show expiry.
-- Confirmed: Show scheduled start date.
-- Active: Show only Plan-permitted actions valid in the current state.
-- Paused: Explain billing is stopped; show resume where allowed.
-- Closed: Read-only history.
-- Payment failure: Show warning and next step/grace-period state when available.
-
-### 13.5 Change preview UX
-
-For upgrade/downgrade, quantity, and add-on changes:
-
-- Present current vs proposed configuration.
-- Preview expected charge/credit where possible.
-- Explain next-invoice application.
-- Require confirmation.
-- Make clear that the server's final proration amount is authoritative.
-
----
-
-## 14. Architecture and implementation guidance
-
-### 14.1 Architectural constraints
-
-Follow the coding standards:
-
-- Django modular monolith backed by PostgreSQL.
-- Server-rendered templates with small targeted JavaScript (HTMX/Alpine if already used); do not introduce a SPA without a requirement.
-- PostgreSQL is the source of truth.
-- Keep views thin; business writes in services; complex reads in selectors.
-- Use Django ORM and database constraints; no formatted raw SQL.
-- No microservices, generic event bus, message queue, Celery worker, or in-process scheduler.
-- Use Vercel Cron for scheduled task invocation through protected endpoints.
-
-### 14.2 Suggested app structure
-
-Adapt to the repository's existing layout; do not duplicate equivalent files.
+The required invoice state machine is:
 
 ```text
-apps/subscriptions/
-├── models.py          # Subscription, SubscriptionLine, lifecycle enums
-├── services.py        # creation, template copy, transitions, renewal, changes
-├── selectors.py       # subscription/quotation list and detail queries
-├── forms.py           # server-side validation
-├── permissions.py     # only if shared permission layer does not cover it
-├── tasks.py           # quote expiry and renewal task entry points
-├── views.py           # thin request handlers
-├── urls.py
-├── admin.py
-├── tests/
-└── migrations/
-
-apps/quotations/       # only if repository/module boundaries justify a separate app
-├── models.py          # QuotationTemplate and template-line model
-├── services.py        # template create/update and copy operations
-├── selectors.py
-├── forms.py
-├── views.py
-├── urls.py
-└── tests/
+Draft ──► Confirmed ──► Paid
+   │          │
+   └──────────┴──► Cancelled
 ```
 
-The exact app split is not prescribed by the source documents. Prefer the repository's existing modular boundaries and avoid splitting apps without a concrete benefit.
+| From | To | Trigger | Actor |
+|---|---|---|---|
+| Draft | Confirmed | Invoice is confirmed manually or auto-confirmed by a billing run | Admin/Staff or billing process |
+| Confirmed | Paid | Full payment is recorded successfully | M7 payment workflow |
+| Draft | Cancelled | Invoice is cancelled | Admin/Staff |
+| Confirmed | Cancelled | Invoice is cancelled | Admin/Staff |
 
-### 14.3 Service boundaries
+Paid and Cancelled are terminal in the defined workflow. The source does not define a transition out of either state.
 
-Suggested focused service responsibilities (names illustrative, not mandatory):
+### 5.2 Centralized transition service
 
-- `create_quotation_template(...)`
-- `update_quotation_template(...)`
-- `create_subscription_from_template(...)`
-- `create_subscription(...)`
-- `send_quotation(...)`
-- `accept_quotation(...)`
-- `expire_quotations(...)`
-- `transition_subscription(...)`
-- `pause_subscription(...)`
-- `resume_subscription(...)`
-- `renew_subscription(...)`
-- `apply_subscription_change(...)`
-- `calculate_proration(...)`
-- `process_automatic_renewals(...)`
+All invoice status changes must pass through one domain service, for example:
 
-Do not create thin wrappers that add no policy or reuse. Keep the number of parameters and function length manageable, consistent with coding standards.
+```python
+invoices.services.transition(invoice, to_status, actor)
+```
 
-### 14.4 Transactions and concurrency
+The exact module path should follow the existing repository layout. The service must:
 
-Use `transaction.atomic()` for multi-record writes, including:
+1. Lock the invoice when concurrent changes are possible.
+2. Validate the requested transition against one centralized transition map.
+3. Reject invalid transitions with a domain-specific exception.
+4. Apply the status change atomically.
+5. Write an AuditLog entry with actor, previous status, new status, and timestamp.
+6. Preserve immutable financial fields once the invoice is Confirmed.
 
-- Creating a subscription and copying template lines.
-- Sending a quotation and recording its state/validity metadata.
-- Accepting a quotation and transitioning it to Confirmed.
-- Applying plan/quantity/add-on changes and recording proration adjustments.
-- Processing renewal state and its related records where transaction boundaries permit.
+Do not assign `invoice.status` directly from views, templates, tasks, or unrelated services.
 
-Use `select_for_update()` when concurrent requests/jobs could update the same subscription or quotation. Enforce uniqueness at the database level, not only with pre-checks.
+### 5.3 Invoice generation from a subscription
 
-### 14.5 Scheduled jobs
+When a subscription is due for billing, M5 should:
 
-Coding standards specify Vercel Cron calling protected endpoints that invoke `tasks.py` entry points for quote expiry and renewals.
+1. Load the subscription and the billing period being processed.
+2. Confirm that the subscription is eligible for billing and is not Paused.
+3. Check the subscription/billing-period uniqueness rule as an optimization only; the database constraint remains authoritative.
+4. Load the subscription's customer, plan context, payment terms, and subscription lines.
+5. Create invoice lines from the subscription lines without asking Staff to retype them.
+6. Resolve each product's associated tax and copy the applicable rate to its invoice line.
+7. Obtain eligible discounts from M6 and include their breakdown.
+8. Include pending proration adjustments from M4 and show them on the invoice.
+9. Calculate subtotal, discounts, taxes, adjustments, and total using Decimal-based server logic.
+10. Derive the due date from the subscription's payment terms.
+11. Persist the invoice and its lines transactionally.
+12. Record the result as Created in the active BillingRun.
 
-- Protect cron endpoints with a secret (for example, `CRON_SECRET` header check); never expose publicly callable job endpoints.
-- Jobs must be idempotent and safe for overlapping/repeated invocations.
-- Keep each invocation within serverless execution limits; batch/resume long work if needed.
-- Do not use a permanent in-process scheduler or local filesystem state.
-- Log job outcomes and per-record failures with useful IDs, not secrets or unnecessary personal data.
-- Do not send duplicate customer emails when a job is retried.
+The requirements say billing runs can auto-confirm invoices. The exact policy for whether generated invoices are Draft by default or auto-confirmed by a billing run must be represented consistently in the billing-run implementation. The source does not specify a global default beyond allowing the run to auto-confirm in the state machine; confirm this behavior before making it configurable or fixed.
 
-### 14.6 Integration contracts
+### 5.4 Duplicate-billing protection
 
-| Module | M4 integration |
+This is a core data-integrity requirement.
+
+- Add a database `UniqueConstraint` on `(subscription, billing_period)` for invoices.
+- Do not rely only on a prior existence query; two concurrent requests can pass a pre-check simultaneously.
+- If the insert hits the unique constraint, catch the narrow `IntegrityError`, roll back the failed unit of work as needed, record the subscription as Skipped, and include a reason such as “This billing period has already been invoiced.”
+- A Cancelled invoice still occupies the subscription/billing-period uniqueness slot.
+- A billing rerun must not create a second invoice for a period already represented by Draft, Confirmed, Paid, or Cancelled invoice records.
+- Do not provide a “regenerate” action for a period already billed.
+
+The source explicitly states that a cancelled invoice's period remains billed and must not be billed again. Do not implement replacement invoice generation for that same period unless the business rule is changed.
+
+### 5.5 Paused subscriptions
+
+- Paused subscriptions must be excluded from billing runs.
+- A paused subscription must not receive a new invoice while paused.
+- M4 owns pause/resume and next-billing-date recalculation.
+- When the subscription resumes, M5 uses the recalculated billing date supplied by the subscription domain; it must not invent a separate pause-duration algorithm.
+
+### 5.6 Tax calculation
+
+- Tax comes only from the tax attached to each product (BR-8).
+- Every invoice line carries the product's applicable tax rate (FR-5.4).
+- The working assumption is that prices are tax-exclusive and tax is added on top (Open Item B / BR-13).
+- Use the shared money-rounding helper and Decimal values; never use Python floats for financial calculations.
+- The working rounding assumption is per line, two decimal places, half-up (Open Item J). This is not a finalized decision until confirmed.
+- Preserve the rate used on the invoice line so later product-tax edits do not rewrite historical invoices.
+
+M5 must not add location-based tax logic or multiple tax jurisdictions; the source says tax is attached to the product.
+
+### 5.7 Discounts
+
+M6 owns discount rules and eligibility. M5 must consume the approved calculation result and render it clearly.
+
+- Apply eligible discounts automatically to the next invoice (FR-5.8).
+- Show applied discounts in the invoice breakdown.
+- Respect product-specific or whole-subscription scope as resolved by M6.
+- Do not apply expired, exhausted, or ineligible discounts; the coding standards say these should be skipped with a log entry rather than blocking invoice generation.
+- The working stacking order is fixed amount first, then percentage on the remainder (Open Item F).
+- The working combined cap is 100% of the amount, so the total cannot go below zero (Open Item A / BR-9).
+- Discount redemption counts increment when the invoice using the discount is confirmed (FR-6.8); coordinate the exact redemption call with M6 rather than incrementing from an unconfirmed draft.
+
+### 5.8 Proration adjustments
+
+M4 owns subscription changes and the calculation inputs; M5 includes pending adjustments in the next invoice.
+
+- Mid-cycle changes to quantity, plan, or add-ons produce a prorated charge or credit on the next invoice (FR-4.13).
+- Show proration adjustments as identifiable invoice detail, not as an unexplained change to the subscription line total.
+- The working assumption is daily-basis proration, with downgrade credits applied to the next invoice (Open Item K).
+- Use the shared rounding rule (Open Item J) and server-calculated Decimal values.
+- Do not promise an immediate refund for a downgrade credit; the source assumption applies the credit to the next invoice.
+- Do not calculate authoritative proration in browser-only JavaScript.
+
+### 5.9 Due-date calculation
+
+- Every invoice has a due date derived from the subscription's payment terms (FR-5.7).
+- Payment terms are Admin-managed configuration (M9), with examples such as Immediate, Net 15, and Net 30.
+- M5 reads the selected payment term and applies its configured due-date rule.
+- Store the due date used by the invoice so later changes to a payment-term definition do not silently change an existing invoice.
+
+The source does not define timezone handling, whether “Immediate” means the invoice date or same-day end-of-day, or the exact calendar-day/business-day convention. These details must be confirmed and implemented consistently.
+
+### 5.10 Overdue indicator
+
+The requirements define:
+
+```text
+overdue = today > due_date AND invoice.status != Paid
+```
+
+Consequences:
+
+- An invoice due today is not overdue under the stated rule.
+- Paid invoices are not overdue.
+- Draft, Confirmed, and Cancelled invoice treatment should follow the literal rule only if those records appear in the relevant invoice views; the product team should confirm whether Cancelled invoices should be excluded from overdue lists, because the stated formula excludes only Paid.
+- Display the due date and, if calculated by the application, the number of days overdue.
+- Use a consistent application/business timezone for the meaning of “today”; the source does not specify which timezone.
+
+Do not substitute a different overdue formula without a requirements decision.
+
+### 5.11 Invoice immutability
+
+FR-5.10 is Should priority, and the coding standards additionally state that invoice totals are stored at confirmation time and historical invoices are not recomputed from current prices.
+
+Once Confirmed:
+
+- Financial totals and line values are immutable.
+- Product tax rates and applied discount/proration values used for the invoice remain historical values.
+- Corrections follow the cancel-only working assumption in Open Item I.
+- A cancelled invoice remains associated with its original billing period and that period is not re-billed.
+
+The source does not define a credit-note workflow. Do not add one to M5 without a product decision.
+
+---
+
+## 6. Bulk billing runs
+
+### 6.1 Trigger methods
+
+A billing run can be started by:
+
+- Admin or Staff using the “Run billing now” action.
+- The approved scheduler using a protected Vercel Cron endpoint.
+
+Customers cannot start billing runs.
+
+### 6.2 Billing-run processing flow
+
+```text
+Start billing run
+       │
+       ▼
+Find due subscriptions
+       │
+       ▼
+Exclude paused / ineligible subscriptions
+       │
+       ▼
+Resolve billing period and check invoice uniqueness
+       │
+       ▼
+Generate invoice lines, tax, discounts, proration, due date
+       │
+       ▼
+Persist invoice transactionally
+       │
+       ▼
+Record Created / Skipped / Failed result
+       │
+       ▼
+Continue with next subscription
+       │
+       ▼
+Complete run and show summary
+```
+
+### 6.3 Per-subscription isolation
+
+A failure for one subscription must not abort the full run.
+
+For each subscription:
+
+1. Execute the required reads and writes in a bounded transaction.
+2. Catch only expected, narrow domain/database exceptions at the per-subscription boundary.
+3. Roll back that subscription's incomplete invoice work.
+4. Record Failed with a safe reason and relevant IDs.
+5. Log the exception with operational context.
+6. Continue to the next subscription.
+
+Do not use a broad bare `except:` or silently swallow an exception. Unexpected failures must be logged and represented safely in the run outcome.
+
+### 6.4 Billing-run result log
+
+Every run must persist Created, Skipped, and Failed outcomes with reasons (FR-5.9).
+
+Per-item fields required by the UI/UX specification:
+
+- Subscription number.
+- Customer.
+- Outcome: Created / Skipped / Failed.
+- Invoice number, if created.
+- Reason, especially for skipped or failed items.
+
+Run-level information shown in the UI:
+
+- Run date/time.
+- Trigger type (Scheduled or Manual).
+- Subscriptions processed.
+- Invoices created.
+- Subscriptions skipped.
+- Failures.
+
+The exact run-state enum is an implementation detail. The UI/UX document suggests In progress, Completed, Completed with failures, and Failed as useful presentations.
+
+### 6.5 Manual billing UX
+
+Before starting a manual run:
+
+- Explain that the action processes all due subscriptions and may create invoices.
+- Require a deliberate action to start the run.
+- Prevent repeated clicks from launching duplicate work from the same UI submission where possible; database idempotency remains mandatory.
+
+After completion:
+
+- Show created, skipped, and failed counts.
+- Link to the detailed result log.
+- Make the result accessible after the user navigates away.
+- Do not imply that a partially failed run wholly failed if some invoices were successfully created.
+
+### 6.6 Batching and resumability
+
+The coding standards prohibit long-running background workers and in-process schedulers on Vercel. They specify protected Vercel Cron endpoints that call `tasks.py` entry points, and require long jobs to be batched and resumable.
+
+Therefore:
+
+- Do not introduce Celery workers, APScheduler, a message queue, or a separate event bus for M5.
+- Process a limited chunk per serverless invocation where execution limits require it.
+- Persist enough progress/result state to continue safely on a later invocation.
+- Make each invocation safe if repeated or overlapping.
+- Use database constraints and locking rather than in-memory run state.
+- Protect the cron endpoint with a secret such as `CRON_SECRET`; it must never be publicly callable without authentication.
+- The exact batch size, cron frequency, and continuation mechanism are not specified and must be configured for the deployment environment.
+
+### 6.7 Concurrency and idempotency
+
+- The database is the source of truth; Vercel functions are stateless and may run in parallel.
+- Use `transaction.atomic()` for invoice creation and related multi-step writes.
+- Use `select_for_update()` where a subscription, invoice, or related discount redemption can be changed concurrently.
+- The unique `(subscription, billing_period)` constraint is the final duplicate safeguard.
+- Handle a uniqueness `IntegrityError` as an already-billed/Skipped outcome, not as a fatal run error.
+- Scheduled runs must be safe if triggered twice or overlap.
+- Avoid duplicate emails or repeated external side effects when a job retries; email delivery must be coordinated through the notification/email boundary.
+
+---
+
+## 7. User interface and screen behavior
+
+Follow the shared UI/UX specification: persistent internal navigation, responsive layouts, permission-aware controls, readable status text, paginated tables, field-level validation, and clear feedback for every action.
+
+### 7.1 Internal invoice list
+
+Audience: Admin and Staff.
+
+Recommended columns:
+
+- Invoice number.
+- Customer.
+- Subscription number.
+- Invoice date.
+- Due date.
+- Total.
+- Status.
+- Overdue indicator.
+
+Filters:
+
+- Status.
+- Overdue only.
+- Customer.
+- Date range.
+- Subscription.
+
+Behavior:
+
+- Search by useful invoice/customer/subscription identifiers.
+- Sort relevant columns where useful.
+- Paginate results; do not load an unbounded invoice table.
+- Clicking a row opens invoice detail.
+- Keep filters when returning from a detail page where feasible.
+- Provide loading, empty, and error states.
+- Do not offer a regenerate action for a billing period already billed.
+
+### 7.2 Invoice detail
+
+Header:
+
+- Invoice number.
+- Customer.
+- Status.
+- Due date.
+- Overdue indicator when applicable.
+
+Sections:
+
+1. Customer billing details.
+2. Subscription reference and billing period.
+3. Invoice lines.
+4. Tax and discount breakdown.
+5. Proration adjustments.
+6. Subtotal and total.
+7. Payment history.
+
+Actions for Admin/Staff:
+
+- Confirm.
+- Cancel.
+- Send by email.
+- Print / download PDF.
+- Record payment through the M7 workflow.
+
+Only actions valid for the invoice's current status and the actor's role should be shown as available.
+
+### 7.3 Invoice creation presentation
+
+Invoices are generated from subscriptions. The UI must not ask Staff to retype invoice lines.
+
+Show the generated:
+
+- Billing period.
+- Subscription and customer.
+- Product lines and quantities.
+- Product tax rates.
+- Applicable discounts.
+- Proration adjustments.
+- Due date.
+- Final total.
+
+The server is authoritative for all calculations. Display read-only calculated values and do not trust client-submitted prices, tax rates, totals, or statuses.
+
+### 7.4 Customer invoice list
+
+Customers see only their own invoices.
+
+Recommended columns:
+
+- Invoice number.
+- Invoice date.
+- Due date.
+- Amount.
+- Status.
+- Overdue indicator.
+
+Customers can open, view, and print their own invoices. Do not expose Confirm, Cancel, Send, Record payment, or Run billing controls in the customer portal.
+
+### 7.5 Invoice PDF / print view
+
+The requirement supports printing (PDF), and the UI/UX source says customers and internal users can print/download invoices.
+
+The printable representation should include the invoice details needed to understand the charge: invoice number, customer billing details, subscription/billing period, line items, quantity, unit price, tax, discount/proration detail, subtotal, total, due date, and status where appropriate.
+
+The exact company branding, logo, legal text, tax identifiers, invoice-number format, PDF page layout, and storage/retention policy are not defined. Confirm these before treating them as required fields or building a template editor.
+
+Vercel deployment constraint: generated PDFs must not be stored persistently on the local filesystem. If PDFs need persistent storage, use approved external object storage. The source allows a PDF library such as WeasyPrint or ReportLab only after confirming Vercel bundle/system-library constraints; do not add a heavy dependency without review.
+
+### 7.6 Email sending
+
+- Admin/Staff can send an invoice by email.
+- Email delivery failure must not roll back the invoice or other completed business transaction.
+- Log delivery failure, mark it for retry, and expose delivery/retry state to internal users where available.
+- Avoid duplicate customer emails when a scheduled or manual operation is safely retried.
+- Never log secrets, tokens, reset links, or full payment details.
+
+The exact email provider, subject/body template, attachment-versus-link behavior, retry count, and sender identity are not specified by M5 and must follow the project's email-provider boundary and product configuration.
+
+### 7.7 Status presentation
+
+Use readable status labels; color must not be the only status indicator.
+
+| Status / flag | Presentation |
 |---|---|
-| M1 Authentication/User Management | Resolve actor role and current Customer identity; enforce role checks and customer ownership. |
-| M2 Product Catalog | Select valid Products/Variants; use product price and associated tax as source inputs. |
-| M3 Plans | Select Plan; validate availability, lifecycle options, billing period, and renewal mode. |
-| M5 Invoicing | Provide due subscriptions, line snapshots, proration adjustments, and renewal invoice requests through M5 services. M5 owns invoice records and billing runs. |
-| M6 Discounts | Do not manage discount rules; provide subscription context for applicable discounts to be handled by M5/M6. |
-| M7 Payments | Automatic renewal collection uses payment-provider boundary; payment state remains M7-owned. |
-| M9 Taxes/Payment Terms | Reference configured tax through Product and configured PaymentTerm; do not duplicate configuration CRUD. |
-| Shared email/scheduler | Use replaceable email boundary and protected Vercel Cron task entry points. |
+| Draft | Neutral/pending label; can be confirmed or cancelled. |
+| Confirmed | Confirmed label; financial details read-only; can be paid or cancelled. |
+| Paid | Paid/success label; terminal state in the defined workflow. |
+| Cancelled | Cancelled label; terminal state; billing period remains billed. |
+| Overdue | Derived warning indicator when today is later than due date and status is not Paid under the stated formula. |
 
-### 14.7 Database and query performance
+### 7.8 Confirmation and feedback
 
-- PostgreSQL is the source of truth.
-- Use `UniqueConstraint` for subscription number and any clearly defined unique business keys.
-- Add database constraints for clear invariants; do not rely only on forms.
-- Use `select_related`/`prefetch_related` and paginate list views.
-- Add indexes only for demonstrated query patterns; common subscription filters include status, customer, plan, and billing date.
-- Every model change ships with a migration. Never edit an applied migration.
-- Run migrations as an explicit deployment step, not during a request.
+- Confirming an invoice should clearly identify the invoice and total being confirmed.
+- Cancelling an invoice must require confirmation and warn that the billing period remains billed and will not be invoiced again.
+- Sending an invoice should show a visible result and delivery state where available.
+- Printing should open or provide the generated PDF using the approved project pattern.
+- Failed validation should preserve valid form input where possible.
+- Disable repeat submission while an action is processing, but do not rely on UI disabling for idempotency.
 
 ---
 
-## 15. Security, auditability, and error handling
+## 8. Validation and error handling
 
-### 15.1 Authorization and customer isolation
+| Situation | Expected behavior |
+|---|---|
+| Subscription is not due | Do not generate an invoice; record a skip reason if it was considered by the run. |
+| Subscription is Paused | Exclude it from billing; record a clear skip reason when included in the run's considered set. |
+| Billing period already has an invoice | Skip and record “already billed” or equivalent reason. |
+| Existing invoice for period is Cancelled | Skip; explicitly explain that the cancelled period remains billed. |
+| Concurrent duplicate invoice attempt | Database unique constraint wins; catch `IntegrityError`, roll back that item, and record Skipped. |
+| Product has no usable tax association | Fail that subscription's invoice generation with a clear operational reason; do not silently invent a tax rate. The exact nullability rule should follow M2's approved model. |
+| Discount expired/exhausted/ineligible | Do not apply it; log/record the reason according to M6 behavior; do not block invoice creation solely for an ineligible discount. |
+| Proration data unavailable or invalid | Fail safely or follow the agreed M4/M6 integration contract; do not invent a charge or credit. |
+| Payment term missing or invalid | Do not fabricate a due date; report a per-subscription failure and resolve the configuration. |
+| Invoice total calculation error | Roll back the invoice item, log safely, and continue the run. |
+| Invalid invoice transition | Reject with a domain error and a friendly message. |
+| Confirmed invoice edit attempted | Reject changes to immutable financial fields. |
+| Paid or Cancelled invoice action attempted | Reject invalid actions; terminal states remain terminal. |
+| Customer requests another customer's invoice | Deny access without disclosing whether the invoice exists. |
+| Email delivery fails | Preserve invoice state, log the failure, and mark for retry. |
+| PDF generation fails | Show a safe error; do not alter invoice financial state. |
+| Billing run partially fails | Show Created, Skipped, and Failed outcomes separately; successful invoices remain successful. |
+| Cron endpoint called without valid secret | Reject the request; do not start billing. |
+| Database timeout during run | Log with context and retry only safe/idempotent work; allow later invocation to resume. |
 
-- Enforce role permissions on every view and service.
-- Customer-facing queries must scope records to the authenticated Customer; never fetch by ID alone.
-- A Customer changing a URL/object ID must not access another Customer's quotation, subscription, lines, or activity.
-- Write/action endpoints must repeat ownership checks.
-- Unauthorized responses must not reveal whether another customer's record exists.
-- Hiding UI controls is not authorization.
-
-### 15.2 Input and financial integrity
-
-- Validate all submitted fields with Django forms/serializers.
-- Never trust client-sent subscription number, status, price, tax rate, line amount, total, or proration result.
-- Use ORM/parameterized SQL only.
-- Keep Django template auto-escaping enabled; CSRF protection remains on for state-changing browser requests.
-- Use `DecimalField` and shared rounding helper; never float.
-- Use transactions and row locks for concurrent lifecycle/financial changes.
-
-### 15.3 Auditability
-
-Record at least:
-
-- Subscription lifecycle transition: actor/system identity, from status, to status, timestamp.
-- Template creation/edit: Admin actor, template, operation, timestamp.
-- Quotation send, acceptance, expiry, and decline where implemented.
-- Pause/resume/cancel/renew and plan/quantity/add-on changes.
-- Renewal failure and `payment_failed` set/clear events.
-
-Reuse the existing shared `AuditLog` mechanism; the source does not define a new M4-specific audit schema.
-
-### 15.4 Error handling
-
-- Define narrow domain exceptions for invalid transitions, expired quotations, disallowed Plan actions, unavailable Plan, and invalid renewal state where useful.
-- Catch the narrowest exception; never use bare `except:` or silently swallow exceptions.
-- Return friendly validation/permission messages; never expose stack traces or SQL details.
-- Use module-level Python loggers, not `print()`.
-- Log useful context such as subscription/quotation/customer IDs; do not log secrets or unnecessary personal data.
-- Email failures must not roll back committed business transactions; log and mark for retry.
-- A failed record in a scheduled batch should not prevent unrelated eligible records from being processed where per-record isolation is supported.
+Use domain exceptions for expected business failures, narrow exception handling, and Python's `logging` module. Never expose SQL errors, stack traces, or internal implementation details to users.
 
 ---
 
-## 16. Acceptance criteria
+## 9. Architecture and implementation guidance
 
-M4 is acceptable only when all applicable criteria below are demonstrated.
+### 9.1 Approved architecture
 
-### 16.1 Quotation templates
+Follow the project's Django modular-monolith architecture:
 
-- [ ] Admin can list, create, and edit quotation templates.
-- [ ] A template stores a Plan, predefined product lines, and validity period in days.
-- [ ] Blank template names and invalid validity values are rejected.
-- [ ] Staff can use an existing template during subscription creation.
-- [ ] Staff cannot create or edit templates through UI or direct requests.
-- [ ] Customers cannot access template management.
-- [ ] Editing a template does not mutate already-created subscriptions.
+- Django current LTS.
+- PostgreSQL as the single source of truth.
+- Server-rendered templates with small targeted JavaScript where applicable.
+- Thin views; business logic in services; read/query logic in selectors.
+- No microservices, message queues, or event buses.
+- No long-running in-process background workers or schedulers on Vercel.
 
-### 16.2 Subscription creation and identity
+### 9.2 Suggested app organization
 
-- [ ] Admin and Staff can create a subscription for a selected Customer.
-- [ ] A subscription references exactly one Customer and one Plan.
-- [ ] Subscription stores number, start date, expiry date, and payment terms.
-- [ ] Creating from a template copies all configured lines.
-- [ ] Copied lines are editable independently of the template.
-- [ ] Plan availability is checked for the selected start date on the server.
-- [ ] Subscription number is sequential, unique, and never reused.
-- [ ] Concurrent creation cannot allocate duplicate subscription numbers.
+Adapt names to the repository's actual app layout; do not create duplicate layers if equivalent modules already exist.
 
-### 16.3 Subscription lines and pricing
+```text
+apps/
+  invoices/
+    models.py          # Invoice, InvoiceLine, BillingRun, result records if owned here
+    services.py        # generation, totals, transitions, confirm/cancel/send orchestration
+    selectors.py       # invoice lists, detail queries, billing-run history
+    forms.py           # internal filters/actions if server-rendered
+    views.py           # thin request handlers
+    urls.py
+    tasks.py           # bounded billing-run task entry point
+    permissions.py     # invoice and billing-run access rules
+    exceptions.py      # invalid transition / generation errors
+    pdf.py             # printable invoice rendering boundary, if needed
+    tests/
+      test_generation.py
+      test_billing_runs.py
+      test_transitions.py
+      test_calculations.py
+      test_permissions.py
+      test_pdf_and_email.py
+```
 
-- [ ] Each line stores Product, quantity, unit price, tax association/rate behavior, and amount.
-- [ ] Add-ons are represented as subscription lines.
-- [ ] Product tax is the source of tax; client-supplied tax is ignored/rejected.
-- [ ] Unit prices, amounts, and totals are server-calculated using Decimal.
-- [ ] Invalid products, quantities, and prices are rejected.
+If the project has separate `billing` or `subscriptions` apps, place BillingRun orchestration according to existing ownership and keep invoice domain operations in one clear service boundary. Do not create an additional app solely to match this illustrative tree.
 
-### 16.4 Lifecycle and status visibility
+### 9.3 Service boundaries
 
-- [ ] Draft can transition to Quotation through the send action.
-- [ ] A valid quotation can transition to Confirmed through acceptance.
-- [ ] An expired quotation cannot be accepted.
-- [ ] Confirmed transitions to Active on start date under the current working assumption.
-- [ ] Active can transition to Paused only when permitted.
-- [ ] Paused can resume to Active and recalculates next billing date.
-- [ ] Valid closure paths transition Active/Paused to Closed.
-- [ ] Invalid transitions are rejected by the centralized service.
-- [ ] Every team member with subscription access sees current status.
-- [ ] `payment_failed` is displayed independently of lifecycle status.
-- [ ] Every transition is audited.
+Suggested service responsibilities:
 
-### 16.5 Customer portal
+- `generate_invoice_for_period(subscription, billing_period, actor_or_system)` — create one invoice from a subscription period; enforce eligibility and database uniqueness.
+- `run_billing_batch(run, batch_cursor_or_scope)` — process a bounded set of due subscriptions and append per-item results.
+- `transition(invoice, to_status, actor)` — validate and audit invoice status changes.
+- `confirm_invoice(invoice, actor)` — validate and confirm; freeze the financial snapshot and coordinate discount redemption confirmation with M6.
+- `cancel_invoice(invoice, actor, reason_if_supported)` — cancel under the state machine and preserve the billing-period uniqueness record.
+- `calculate_invoice_totals(lines, discounts, proration)` — use Decimal and the shared rounding helper; keep calculations deterministic.
+- `send_invoice(invoice, actor)` — call the configured email boundary after appropriate state/permission checks; delivery failure must not undo the invoice.
+- `build_invoice_pdf(invoice)` — render a printable representation without persistent local-filesystem dependence.
 
-- [ ] Customer can view only their own subscriptions and quotations.
-- [ ] Customer can accept only their own valid quotation.
-- [ ] Customer portal actions are available only when both state and Plan lifecycle options permit them.
-- [ ] Customer cannot change a URL/object identifier to view another customer's data.
-- [ ] Direct requests cannot bypass portal permission or Plan-option checks.
+These are suggested responsibilities, not mandatory public function names. Keep abstractions small and consistent with existing project conventions.
 
-### 16.6 Renewal and pause behavior
+### 9.4 Database integrity and indexes
 
-- [ ] Automatic renewal creates/requests the renewal invoice through M5 and attempts collection through M7 boundary.
-- [ ] Failed/unpaid renewal sets `payment_failed`.
-- [ ] Customer email and Staff notification are triggered for renewal failure.
-- [ ] Retry/grace policy is applied according to configured/confirmed values.
-- [ ] Final failure pauses or closes according to the configured policy.
-- [ ] Manual renewal can be triggered by eligible Customer or Staff.
-- [ ] Paused subscriptions are excluded from billing runs.
-- [ ] Resume recalculates and persists next billing date.
-- [ ] Repeated scheduled runs do not duplicate transitions, invoices, or emails.
+Use PostgreSQL constraints and indexes where appropriate:
 
-### 16.7 Add-ons and proration
+- `UniqueConstraint(subscription, billing_period)` on Invoice.
+- Appropriate foreign keys from Invoice to Subscription/Customer and InvoiceLine to Invoice/Product where the domain model supports them.
+- Check constraints for non-negative quantities/amounts only where compatible with legitimate credit/proration lines; do not prohibit valid negative credit adjustments by assumption.
+- Index invoice status, due date, customer, subscription, and invoice date/billing period according to actual query patterns.
+- Index BillingRun creation/start time and result lookups as appropriate.
+- Use `select_related` and `prefetch_related` to avoid N+1 queries.
+- Paginate all invoice and billing-run result lists.
 
-- [ ] Permitted add-ons can be added/removed as subscription lines.
-- [ ] Mid-cycle quantity, Plan, and add-on changes create a charge or credit adjustment.
-- [ ] Proration adjustment is applied to the next invoice, not an immediate refund.
-- [ ] Proration uses Decimal and the approved daily-basis/rounding rules.
-- [ ] Retried operations do not apply the same adjustment twice.
-- [ ] Customer sees a proposed configuration and an estimated charge/credit before confirming.
+Every model change requires a migration. Never edit an applied migration. Use separate reversible data migrations where practical.
 
-### 16.8 Security, reliability, and performance
+### 9.5 Money handling
 
-- [ ] Server-side RBAC is enforced on all protected endpoints/services.
-- [ ] Customer data isolation applies to reads and writes.
-- [ ] Database constraints protect subscription number uniqueness.
-- [ ] Multi-record writes are atomic.
-- [ ] Cron endpoints are secret-protected.
-- [ ] Quote expiry and renewal tasks are idempotent and safe under overlap.
-- [ ] Email failure is logged/retried without rolling back business data.
-- [ ] Subscription and quotation list pages are paginated and avoid N+1 queries.
-- [ ] Relevant pages meet the under-two-second target at thousands of subscriptions, subject to representative performance testing.
+- Use `DecimalField` for monetary values (the coding standards give `max_digits=12, decimal_places=2` as an example).
+- Never use `float` for prices, tax, discounts, proration, totals, or assertions.
+- Use the shared `money.round()` helper consistently.
+- The current working rounding assumption is per line, two decimals, half-up; confirm Open Item J.
+- Store totals at confirmation time and never recompute historical confirmed invoices from current product/subscription prices.
+- Currency is single-currency under the working assumption; the actual currency code is not specified in the source and must not be invented.
 
----
+### 9.6 Scheduler and Vercel
 
-## 17. Test plan
+- Use Vercel Cron to call a protected endpoint which invokes a `tasks.py` entry point.
+- Protect the endpoint with a secret header check such as `CRON_SECRET`.
+- No Celery worker, APScheduler in-process, or persistent local job state.
+- Batch and resume large runs within serverless execution limits.
+- Ensure safe re-runs and overlapping invocation behavior.
+- Do not write persistent invoice PDFs or billing state to local disk.
+- Run migrations as an explicit deploy step, not at request time.
+- Use environment variables for secrets and `DATABASE_URL`; production database connections require SSL and should use the project's pooler settings.
 
-Use `pytest`, `pytest-django`, and `factory-boy` as specified by the coding standards. Tests must not call real external services. Use a test email backend and mock payment-provider boundary. Monetary assertions must use `Decimal`, never float.
+### 9.7 Email and PDF dependencies
 
-### 17.1 Template management and permissions
-
-1. Admin creates a valid template.
-2. Admin edits name, Plan, validity, and lines.
-3. Blank name rejected.
-4. Invalid/zero/negative validity days rejected (subject to confirmed boundary).
-5. Staff can select/use a template.
-6. Staff cannot create/edit template through UI or direct endpoint/service call.
-7. Customer cannot access template routes.
-8. Template update after subscription creation does not mutate copied subscription lines.
-
-### 17.2 Subscription creation and numbering
-
-1. Create subscription without template.
-2. Create subscription from template.
-3. All template lines copied.
-4. Copied lines can be edited without changing template.
-5. Invalid Customer/Plan/Product references rejected.
-6. Plan unavailable on selected start date rejected server-side.
-7. Required start date, expiry date, and payment terms validated.
-8. Sequential subscription numbers generated.
-9. Concurrent creation attempts do not produce duplicate numbers.
-10. Deleted/closed/failed records do not cause number reuse.
-
-### 17.3 Subscription lines and monetary behavior
-
-1. Valid line amount calculation.
-2. Quantity boundary and invalid quantity.
-3. Client-forged unit price ignored/rejected.
-4. Client-forged tax rate ignored/rejected.
-5. Tax sourced from Product tax.
-6. Decimal precision and rounding behavior.
-7. Add-on line addition and removal.
-8. Multi-line creation rolls back atomically on a failing line.
-
-### 17.4 Lifecycle transitions
-
-1. Draft → Quotation.
-2. Quotation → Confirmed.
-3. Quotation → Closed on expiry.
-4. Confirmed → Active at start date.
-5. Active → Paused when Plan allows.
-6. Active → Paused denied when Plan disallows.
-7. Paused → Active and next billing date recalculated.
-8. Active/Paused → Closed through permitted closure paths.
-9. Invalid transitions rejected.
-10. Concurrent transition attempts do not corrupt status or duplicate audit records.
-11. Every successful transition creates the expected audit event.
-
-### 17.5 Quote acceptance and expiry
-
-1. Customer accepts own valid quotation.
-2. Customer cannot accept another Customer's quotation.
-3. Expired quotation rejected even if browser submits acceptance manually.
-4. Wrong current status rejected.
-5. Boundary test at exact `valid_until` according to the confirmed time semantics.
-6. Expiry task closes eligible quotations.
-7. Repeated/overlapping expiry task does not duplicate transition or email.
-8. Email delivery failure is logged and retriable.
-
-### 17.6 Renewal and payment failure
-
-1. Automatic renewal selects only eligible automatic-mode subscriptions.
-2. Disabled Plan renewal option prevents renewal even if mode is automatic.
-3. Renewal invoice request delegates to M5.
-4. Payment collection delegates to M7 provider interface.
-5. Simulated success clears `payment_failed` as appropriate.
-6. Simulated failure sets `payment_failed`.
-7. Customer notification generated.
-8. Staff notification generated.
-9. Retry/grace policy advances correctly.
-10. Final failure pauses/closes according to configured policy.
-11. Repeated job invocation does not duplicate invoices, state transitions, or notifications.
-12. Manual renewal is available to eligible Customer/Staff and denied otherwise.
-
-### 17.7 Pause, resume, and billing interaction
-
-1. Paused subscription excluded from M5 billing eligibility.
-2. Resume recalculates next billing date.
-3. Invalid resume from non-Paused state rejected.
-4. Unauthorized pause/resume rejected.
-5. Plan option disabled prevents portal action.
-6. Concurrent pause/resume requests remain consistent.
-
-### 17.8 Add-ons and proration
-
-1. Add an add-on mid-cycle.
-2. Remove an add-on mid-cycle.
-3. Increase/decrease quantity mid-cycle.
-4. Upgrade Plan mid-cycle.
-5. Downgrade Plan mid-cycle produces next-invoice credit under current assumption.
-6. Daily-basis day-count boundaries.
-7. Per-line two-decimal half-up rounding under current assumption.
-8. Multiple changes in one cycle do not double-apply adjustments.
-9. Failed transaction leaves subscription and adjustment records consistent.
-10. M5 consumes each proration adjustment once.
-
-### 17.9 Isolation and performance
-
-- Two Customers with separate quotations/subscriptions; verify each sees only own records.
-- Attempt IDOR on detail, line, acceptance, and lifecycle endpoints.
-- Staff/Admin role matrix tests for all M4 operations.
-- Paginated list queries use appropriate related-object loading.
-- Representative load/performance test with thousands of subscriptions for the NFR-1 target.
+- Email sending must be behind the project's email-provider boundary.
+- Email failure must not roll back invoice creation/confirmation.
+- Generated PDFs may use WeasyPrint or ReportLab only after confirming Vercel package size and system-library compatibility.
+- Do not add a new PDF or email package without checking whether the repository already has an approved dependency or implementation.
 
 ---
 
-## 18. Open decisions and assumptions
+## 10. Security, auditability, and privacy
 
-The following must remain visible in the decision log. Do not convert an assumption into a hidden implementation rule.
+1. Enforce Admin/Staff invoice permissions on every view and service.
+2. Scope every customer-facing invoice query to the authenticated user's linked Customer record.
+3. Never retrieve a customer invoice by primary key alone and then rely on the template to hide it.
+4. Use ORM queries or parameterized queries; no raw SQL string formatting.
+5. Validate all request input. Never trust client-sent prices, tax rates, totals, statuses, billing periods, or ownership identifiers.
+6. Keep CSRF protection enabled for state-changing browser actions.
+7. Keep Django template auto-escaping enabled; do not render user-supplied content with `safe`/`mark_safe`.
+8. Do not expose stack traces, SQL errors, secrets, or internal logs to users.
+9. Do not log full payment details, secrets, tokens, or unnecessary personal data.
+10. Audit invoice status transitions, manual billing triggers, cancellation, and other consequential invoice actions with actor and timestamp.
+11. Scheduled billing must record a system actor or equivalent source identity.
+12. Confirmed invoice snapshots must remain stable when upstream catalog or subscription records change.
 
-| Topic | Source position / working assumption | Required confirmation |
+---
+
+## 11. Acceptance criteria
+
+M5 is functionally acceptable only when the applicable criteria below are demonstrated.
+
+### 11.1 Invoice generation
+
+- [ ] A due eligible subscription can produce an invoice without Staff retyping customer or product-line information.
+- [ ] The invoice references the correct customer and subscription.
+- [ ] The invoice contains the billing period being processed.
+- [ ] Subscription lines are represented as invoice lines with correct quantities and unit prices.
+- [ ] Each invoice line carries the applicable product tax rate.
+- [ ] Subtotal, tax, discounts, proration adjustments, and total are calculated server-side using Decimal.
+- [ ] Due date is derived from the subscription's configured payment terms.
+- [ ] The generated invoice can be opened from the invoice list and subscription context.
+
+### 11.2 Duplicate-billing safety
+
+- [ ] PostgreSQL enforces uniqueness on `(subscription, billing_period)`.
+- [ ] A second attempt to invoice the same period cannot create another invoice.
+- [ ] A uniqueness conflict is handled as Skipped and logged with a reason.
+- [ ] A cancelled invoice still blocks a replacement invoice for that period.
+- [ ] A repeated billing run does not create duplicate invoices.
+- [ ] Concurrent billing attempts cannot bypass the database constraint.
+- [ ] Paused subscriptions are excluded from billing.
+
+### 11.3 Invoice lifecycle
+
+- [ ] Draft can transition to Confirmed.
+- [ ] Draft can transition to Cancelled.
+- [ ] Confirmed can transition to Paid only through successful full payment in M7.
+- [ ] Confirmed can transition to Cancelled.
+- [ ] Invalid transitions are rejected.
+- [ ] Paid and Cancelled are terminal under the defined state machine.
+- [ ] Each transition writes an audit record with actor, from/to states, and timestamp.
+- [ ] Confirmed invoice financial fields cannot be edited.
+
+### 11.4 Invoice actions
+
+- [ ] Admin and Staff can confirm valid Draft invoices.
+- [ ] Admin and Staff can cancel valid Draft or Confirmed invoices.
+- [ ] Cancellation warns that the period remains billed and cannot be regenerated.
+- [ ] Admin and Staff can send invoices by email.
+- [ ] Email failure does not roll back invoice state and is visible/logged for follow-up.
+- [ ] Admin and Staff can print/download invoice PDFs.
+- [ ] Customers can view and print only their own invoices.
+- [ ] Customers cannot confirm, cancel, send, record payment, or run billing.
+
+### 11.5 Billing runs
+
+- [ ] Admin and Staff can start a manual billing run.
+- [ ] The approved scheduler can start a protected scheduled run.
+- [ ] A billing run records trigger type and run timing.
+- [ ] A run records processed, created, skipped, and failed counts.
+- [ ] Each considered subscription has a Created, Skipped, or Failed result with a reason where applicable.
+- [ ] A failure for one subscription does not stop other subscriptions from being processed.
+- [ ] The result log remains accessible after the run completes.
+- [ ] Large runs are bounded/resumable within serverless execution limits.
+- [ ] Repeated or overlapping scheduled invocations are safe.
+
+### 11.6 Calculation and history
+
+- [ ] Tax is derived only from each product's tax association.
+- [ ] Eligible M6 discounts appear on the invoice automatically.
+- [ ] Pending M4 proration adjustments appear on the next invoice.
+- [ ] Confirmed totals are stored and do not change when current product or tax configuration changes.
+- [ ] Overdue status follows `today > due_date AND status != Paid` unless the requirement is formally revised.
+- [ ] The UI does not mark an invoice due today as overdue.
+
+### 11.7 Quality and security
+
+- [ ] Every customer invoice query is scoped to the authenticated customer.
+- [ ] Direct-ID access to another customer's invoice is denied without disclosing record existence.
+- [ ] State-changing actions use server-side permission checks and CSRF protection.
+- [ ] Invoice lists are paginated and avoid N+1 queries.
+- [ ] No persistent invoice/PDF data is written to Vercel local filesystem.
+- [ ] No secrets or full payment details appear in logs.
+
+---
+
+## 12. Test plan
+
+Use `pytest`, `pytest-django`, and `factory-boy`. Each service function must have success and at least one failure-path test. Tests must not call real external services. Money assertions must use `Decimal`, never float.
+
+### 12.1 Invoice generation tests
+
+- Generate an invoice from a valid due subscription.
+- Verify customer, subscription, billing period, invoice date, due date, and line references.
+- Verify product, quantity, unit price, and product tax rate are copied correctly.
+- Verify calculated line totals, subtotal, tax, discount, proration, and invoice total.
+- Verify payment terms determine the due date.
+- Verify no manual invoice-line input is required from Staff.
+- Verify missing/invalid required source data fails safely and is recorded in the billing result.
+
+### 12.2 Uniqueness and idempotency tests
+
+- Generate the same subscription period twice; assert one invoice only.
+- Attempt a second insert at the database constraint; assert graceful Skipped behavior.
+- Cancel the first invoice and rerun; assert no replacement invoice is created.
+- Run two concurrent generation attempts where practical; assert the unique constraint prevents duplication.
+- Repeat the same billing-run task; assert no duplicate invoice or duplicate side effect.
+- Verify paused subscriptions are excluded.
+
+### 12.3 State-transition tests
+
+- Draft → Confirmed succeeds.
+- Draft → Cancelled succeeds.
+- Confirmed → Paid succeeds only through the payment integration path.
+- Confirmed → Cancelled succeeds.
+- Draft → Paid is rejected.
+- Paid → Cancelled is rejected.
+- Cancelled → Confirmed/Paid is rejected.
+- Confirmed invoice financial-field edits are rejected.
+- AuditLog entries are written for each successful transition.
+
+### 12.4 Calculation tests
+
+- Product-specific tax rate is applied to the corresponding line.
+- Different product lines can carry different tax rates.
+- Tax uses Decimal arithmetic and the shared rounding helper.
+- Fixed discount is applied before percentage discount under the working assumption.
+- Combined discount is capped under the working assumption.
+- Expired/exhausted/ineligible discount is skipped without blocking invoice generation.
+- Positive proration charge is included on the next invoice.
+- Negative proration credit is represented correctly under the agreed invoice-line convention.
+- Rounding edge cases follow the confirmed rule.
+- Historical invoice totals remain unchanged after product price/tax changes.
+
+### 12.5 Billing-run tests
+
+- Manual Admin trigger succeeds.
+- Manual Staff trigger succeeds.
+- Customer cannot trigger a billing run.
+- Scheduled endpoint rejects a missing/invalid cron secret.
+- Scheduled endpoint accepts a valid secret and starts the task.
+- Run summary counts match per-item outcomes.
+- One subscription failure does not prevent later subscriptions from being processed.
+- Skipped and failed results include reasons.
+- A batch can resume after a simulated timeout or interrupted invocation.
+- Overlapping invocations do not duplicate invoices.
+
+### 12.6 Invoice action and access tests
+
+- Admin/Staff can confirm, cancel, send, and print where state permits.
+- Customer can list and view own invoices.
+- Customer cannot access another customer's invoice by changing the ID.
+- Customer cannot confirm, cancel, email, or record payment.
+- Email provider failure leaves invoice state intact and records retry/failure status.
+- PDF generation failure returns a safe error without changing invoice state.
+- Cancellation confirmation communicates that the period remains billed.
+
+### 12.7 Performance and query tests
+
+- Invoice list is paginated.
+- Common filters use appropriate indexes where query plans justify them.
+- Invoice detail does not produce avoidable N+1 queries.
+- Billing batches process a representative hundreds-of-subscriptions fixture without exceeding configured execution limits.
+- Verify page performance against NFR-1 in a representative environment; do not claim the two-second target without measurement.
+
+### 12.8 Suggested commands
+
+```bash
+ruff check .
+ruff format .
+python manage.py makemigrations --check --dry-run
+pytest
+```
+
+Run commands using the project's actual environment and scripts. Record any command that cannot be run and why; do not claim a check passed without executing it.
+
+---
+
+## 13. Open decisions and assumptions
+
+The following items are taken from the source requirements/UI specification. They are not silently promoted to finalized product policy.
+
+| ID | Decision / uncertainty | Current source assumption or guidance | M5 impact |
+|---|---|---|---|
+| A | Does the discount cap mean 100% or 100 currency units? | 100% cap; total cannot go below zero. | Discount and total calculation. |
+| B | Are prices tax-inclusive or tax-exclusive? | Tax-exclusive; tax added on top. | Invoice line and total calculation. |
+| C | Dunning cadence and final action? | Reminders at 1, 7, and 14 days past due; then auto-pause. | Overdue display and reminder integration; policy is owned outside M5. |
+| D | Single currency and single company? | Yes, as working assumption. | Currency display and invoice header. |
+| F | Discount stacking order? | Fixed amount first, then percentage on the remainder. | Invoice discount breakdown. |
+| G | Payment-term options? | Admin-managed list, examples Immediate, Net 15, Net 30. | Due-date derivation. |
+| I | How are mistakes on confirmed invoices corrected? | Cancel only; period remains billed. | Cancellation warning and no replacement invoice. |
+| J | Tax/proration rounding rule? | Per line, two decimals, half-up. | Invoice totals and calculation tests. |
+| K | Proration method and downgrade credit handling? | Daily basis; credit applied to next invoice. | Invoice adjustments. |
+
+Additional M5 implementation decisions not fully specified by the source:
+
+1. Invoice-number format, prefix, sequence scope, and whether numbers are allocated at Draft creation or confirmation.
+2. Exact invoice date semantics and timezone.
+3. Exact billing-period representation and how periods are calculated for each plan frequency.
+4. Whether scheduled billing always auto-confirms generated invoices or creates Draft invoices by default.
+5. Exact payment-term day-count convention, timezone, weekend, and holiday behavior.
+6. Whether Cancelled invoices should appear in overdue lists. The literal overdue formula excludes only Paid, but the UI intent for Cancelled records is not explicit.
+7. Whether a missing product tax association is invalid at product creation (M2) or can be encountered at invoice generation.
+8. Exact invoice customer/address snapshot fields.
+9. PDF branding, legal/company details, storage/retention, and whether PDFs are generated on demand or stored externally.
+10. Email subject/body, sender identity, attachment-versus-link delivery, retry policy, and delivery-state model.
+11. Billing batch size, cron frequency, run continuation mechanism, and maximum execution window.
+12. Exact BillingRun status model and whether each per-subscription result is a separate table or structured data.
+13. Whether Staff can view all audit history; UI_UX marks global activity-log Staff access as a decision.
+14. Exact behavior for zero-total invoices or a fully discounted invoice; the source does not state whether these are auto-confirmed or treated specially.
+15. Exact treatment of negative invoice totals if proration credits exceed the current charge; do not assume a refund or carry-forward policy beyond the stated next-invoice credit assumption.
+
+---
+
+## 14. Dependencies and implementation sequence
+
+### 14.1 Required upstream capabilities
+
+- M2 must provide products and product-to-tax associations.
+- M3 must provide plans and billing cadence/configuration.
+- M4 must provide subscription status, due/next billing date, customer, payment terms, subscription lines, pause/resume recalculation, and pending proration information.
+- M6 must provide eligible discount calculation and redemption confirmation behavior.
+- M9 must provide payment terms and the configured currency/company context.
+
+### 14.2 Downstream integrations
+
+- M7 consumes invoice totals and statuses for payment recording/collection and marks invoices Paid after successful full payment.
+- M7 owns overdue reminder/dunning workflow and payment-provider abstraction.
+- M8 consumes invoice and billing-run data for dashboards and reports.
+
+### 14.3 Suggested implementation order
+
+1. Confirm invoice/billing-period model fields and invoice-number strategy.
+2. Implement Invoice, InvoiceLine, BillingRun, and per-item result persistence with migrations.
+3. Add the unique `(subscription, billing_period)` constraint and supporting indexes.
+4. Implement Decimal calculation helpers and invoice-line snapshot behavior.
+5. Implement due-date calculation from PaymentTerm.
+6. Implement invoice generation for one subscription period.
+7. Implement invoice state machine, audit integration, and immutability checks.
+8. Implement bounded billing-run orchestration with per-item failure isolation and idempotency.
+9. Implement Admin/Staff invoice list/detail and billing-run result screens.
+10. Implement customer-owned invoice list/detail/print views with strict data isolation.
+11. Implement email and PDF boundaries using approved dependencies/services.
+12. Integrate M6 discounts, M4 proration, M7 payment state, and M8 reporting.
+13. Complete unit, integration, permission, concurrency, and performance tests.
+14. Verify deployment constraints and run the project's lint, migration, and test commands.
+
+---
+
+## 15. Definition of Done
+
+M5 is ready for acceptance when:
+
+- [ ] FR-5.1 through FR-5.9 are implemented and verified.
+- [ ] FR-5.10 invoice immutability is implemented or its Should-priority deferral is explicitly approved and documented.
+- [ ] Invoice generation is driven by subscription data and requires no manual re-entry of invoice lines.
+- [ ] Tax, discounts, and proration are represented correctly on invoice lines/totals.
+- [ ] Due dates derive from payment terms.
+- [ ] Database-level duplicate-period protection is active and tested.
+- [ ] Cancelled invoices continue to block billing for their period.
+- [ ] Paused subscriptions are excluded.
+- [ ] Invoice transitions are centralized, validated, transactional, and audited.
+- [ ] Billing runs persist Created/Skipped/Failed results and continue after per-subscription failures.
+- [ ] Manual and protected scheduled triggers are available to authorized actors.
+- [ ] Billing work is batched/resumable and safe under retries/overlapping invocations.
+- [ ] Admin/Staff invoice and billing-run screens meet the UI/UX requirements.
+- [ ] Customers can view/print only their own invoices.
+- [ ] Email/PDF failures do not corrupt invoice financial state.
+- [ ] No secrets, stack traces, or unnecessary personal data are exposed in logs or UI errors.
+- [ ] All migrations are present; no applied migration was edited.
+- [ ] `ruff check .`, `ruff format .`, `python manage.py makemigrations --check --dry-run`, and `pytest` pass, or any unavailable check is explicitly recorded with its reason.
+- [ ] No unapproved dependencies or out-of-scope features are introduced.
+- [ ] Open decisions affecting implementation are recorded for product confirmation.
+
+---
+
+## 16. Developer self-review checklist
+
+Complete this checklist when implementing M5, in line with `CODING_STANDARDS.md`.
+
+| Area | Review question | Status |
 |---|---|---|
-| Quote validity without template | FR-4.1 defines template validity days; no-template default is not defined. | Define default validity days when a quotation is created without a template. |
-| Exact quote expiry boundary | “Past validity days” cannot be accepted; exact timestamp/timezone boundary is not explicit. | Define whether acceptance is valid through the end of `valid_until` and which timezone is authoritative. |
-| Template line schema | Template has plan and product lines; complete line attributes are not enumerated. | Confirm whether variants, quantity, unit price overrides, and tax snapshots belong on template lines. |
-| Template archive/delete | Create/edit specified; archive/delete not specified. | Decide whether templates can be archived/deleted and how used templates are retained. |
-| Subscription expiry semantics | Subscription has expiry date; its exact relationship to Plan end date/term is not fully defined. | Confirm expiry calculation and inclusive/exclusive date semantics. |
-| Activation trigger (Open Item H) | Working assumption: Confirmed → Active on start date. Alternative: first payment. | Confirm before implementation; this document follows start date provisionally. |
-| Renewal record model | Manual renewal trigger defined; whether it extends same record or creates a new subscription is not specified. | Decide renewal identity/history behavior and term dates. |
-| Automatic renewal retry policy (Open Item C) | Working assumption: reminders at 1, 7, 14 days past due, then auto-pause; requirement also refers to retry N times and pause/close. | Confirm retry count, intervals, grace period, and final action. Keep configurable until confirmed. |
-| Pause/resume date calculation | Resume recalculates next billing date; formula is not specified. | Define how paused duration affects billing period and next due date. |
-| Cancellation effective date | Cancel/close is supported, but immediate vs end-of-period effect/refund is unspecified. | Define effective date and any financial adjustment behavior. |
-| Plan lifecycle option mapping | M3 provides lifecycle options; exact mapping to all M4 actions must match the actual Plan schema. | Confirm the option controlling each portal action; do not add speculative flags. |
-| Add-on eligibility | Add-ons are subscription lines; universal product eligibility and approval flow are not defined. | Define eligible product types/variants and whether approval is required. |
-| Proration day-count | Working assumption: daily basis; exact boundary/timezone convention unspecified. | Define inclusive/exclusive day counts, leap-day handling, and effective-date rules. |
-| Proration rounding (Open Item J) | Working assumption: per line, 2 decimals, half-up. | Confirm and use shared money helper consistently. |
-| Downgrade credit | Working assumption: credit applied to next invoice, not immediate refund. | Confirm accounting treatment and behavior if no next invoice is generated. |
-| Currency/company | Requirements assume single currency and one company (Open Item D). | Confirm system-wide assumption; M4 should not add multi-currency behavior. |
-| Quantity precision | Requirement says quantity but does not specify integer vs decimal. | Confirm permitted quantity precision based on products/use cases. |
+| File/component structure | Are models, services, selectors, views, forms, tasks, permissions, and tests placed according to the existing project structure? Are views thin? | To verify during implementation |
+| State management | Is PostgreSQL the source of truth? Are invoice transitions centralized, atomic, and audited? | To verify during implementation |
+| Billing integrity | Is `(subscription, billing_period)` protected by a database constraint? Are cancelled periods still treated as billed? | To verify during implementation |
+| Money handling | Are all financial calculations Decimal-based and routed through the shared rounding helper? | To verify during implementation |
+| Historical data | Are confirmed invoice totals and line/tax snapshots immutable? | To verify during implementation |
+| Unused imports / dead code | Are unused imports, variables, stubs, debug prints, and dead code removed? | To verify during implementation |
+| Dependencies | Were new PDF/email packages avoided unless justified, approved, pinned, and compatible with Vercel? | To verify during implementation |
+| Over-engineering | Were unnecessary abstractions, queues, worker systems, and speculative features avoided? | To verify during implementation |
+| Security | Are Admin/Staff permissions enforced server-side? Are customer queries ownership-scoped? Is the cron endpoint protected? | To verify during implementation |
+| Error handling | Are exceptions narrow, failures logged, and per-subscription billing failures isolated? | To verify during implementation |
+| Deployment | Are billing jobs bounded/resumable? Is persistent PDF storage external to the Vercel local filesystem? | To verify during implementation |
 
 ---
 
-## 19. Definition of Done
+## 17. Source of truth
 
-- [ ] All FR-4.1 through FR-4.15 behaviors are implemented or explicitly tracked as blocked by an unresolved product decision.
-- [ ] Admin-only template management and Staff template use are enforced in UI and server-side.
-- [ ] Subscription creation supports blank and template-based flows.
-- [ ] Template lines copy into editable subscription lines without mutating the source template.
-- [ ] Subscription number allocation is sequential, unique, concurrency-safe, and never reused.
-- [ ] Subscription lifecycle transitions are centralized, validated, transactional, and audited.
-- [ ] Quote acceptance checks ownership, state, and expiry server-side.
-- [ ] Customer portal actions enforce ownership and Plan lifecycle options.
-- [ ] Automatic/manual renewal paths integrate with M5/M7 boundaries.
-- [ ] Pause excludes subscription from billing; resume recalculates next billing date.
-- [ ] Add-ons and mid-cycle changes create next-invoice proration adjustments.
-- [ ] Decimal arithmetic and approved rounding are used throughout.
-- [ ] Quote-expiry and renewal tasks use protected, idempotent Vercel Cron entry points.
-- [ ] Tests cover success, failure, permissions, concurrency, idempotency, and customer isolation.
-- [ ] `ruff check .` and formatter pass.
-- [ ] `python manage.py makemigrations --check --dry-run` reports no missing migrations.
-- [ ] No secrets, debug prints, dead code, unused imports, or unnecessary dependencies remain.
-- [ ] No persistent local filesystem or in-process scheduler is introduced.
-- [ ] Relevant pages are paginated and avoid N+1 queries.
-- [ ] Deployment migrations are run as an explicit deployment step.
+This document is derived from the Brightloop Subscription Management System source documents:
 
----
+- `REQUIREMENTS.md` — M5 Invoicing (FR-5.1 through FR-5.10), business rules BR-4 through BR-14, invoice state machine in Section 7.2, non-functional requirements, core domain entities, and Open Items A–K.
+- `UI_UX.md` — Section 5.9 Invoices, Section 5.10 Billing Runs, invoice status/immutability and overdue behavior, customer invoice portal behavior, scheduled billing flow, validation/error states, and PDF/email feedback requirements.
+- `CODING_STANDARDS.md` — Django modular-monolith structure, service/selector boundaries, PostgreSQL constraints and transactions, Decimal money handling, invoice immutability, Vercel Cron and batching constraints, error handling, logging, and pytest standards.
 
-## 20. Developer self-review checklist
-
-Before considering an M4 change complete, review it against the coding standards:
-
-| Area | Review question |
-|---|---|
-| File/component structure | Do views remain thin, with writes in services and complex reads in selectors? Does the implementation fit the existing app structure? |
-| State management | Is PostgreSQL the source of truth? Are all lifecycle transitions centralized, atomic, and audited? |
-| Unused imports / dead code | Are there unused imports, variables, functions, stubs, commented code, or debug prints? Does Ruff pass? |
-| Dependencies | Was any package added? Is it justified, pinned, and compatible with Vercel/serverless limits? |
-| Over-engineering | Were unnecessary frameworks, abstractions, event buses, queues, or speculative features introduced? |
-| Security | Are permissions checked server-side? Is Customer ownership enforced on reads and writes? Are submitted prices/statuses ignored or validated? |
-| Error handling | Are exceptions narrow and logged? Are batch jobs idempotent? Can one record's failure be isolated from other records? |
-| Money | Are all prices and proration values Decimal-based, with one shared rounding policy? |
-| Concurrency | Are subscription number allocation and lifecycle/renewal mutations safe under concurrent requests/jobs? |
-| Scheduled work | Are cron endpoints protected, bounded, resumable where necessary, and safe to run repeatedly? |
-
----
-
-## 21. Source-of-truth hierarchy
-
-When implementation details conflict, use this order:
-
-1. `REQUIREMENTS.md` for functional requirements, business rules, role permissions, state machines, and open items.
-2. `UI_UX.md` for screen structure, user flows, status presentation, and interaction behavior, provided it does not contradict requirements.
-3. `CODING_STANDARDS.md` for architecture, security, database, deployment, testing, and code-quality constraints.
-4. Existing repository conventions and implemented shared services, provided they do not violate the documents above.
-5. Explicit product decisions recorded after these documents; update the specification when a decision changes an assumption.
-
-If a behavior is not specified, record it as an open decision rather than silently inventing a requirement.
+Where these sources define behavior, this document preserves it. Where they leave a decision open, the uncertainty is recorded above instead of being silently replaced with an invented rule.
