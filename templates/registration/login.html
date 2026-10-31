@@ -18,5 +18,13 @@
     <a href="{% url 'accounts:password_reset' %}">Forgot password?</a>
     <a href="{% url 'accounts:signup' %}">Create a customer account</a>
   </div>
+  <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: 0.88rem; color: var(--muted);">
+    <strong style="color: var(--ink); display: block; margin-bottom: 0.4rem;">Demo Accounts:</strong>
+    <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+      <div>• <strong>Admin:</strong> <code>admin@brightloop.com</code> / <code>Admin#12345</code></div>
+      <div>• <strong>Staff:</strong> <code>staff@brightloop.com</code> / <code>Staff#12345</code></div>
+      <div>• <strong>Customer:</strong> <code>acme.corp@example.com</code> / <code>Customer#12345</code></div>
+    </div>
+  </div>
 </div>
 {% endblock %}
