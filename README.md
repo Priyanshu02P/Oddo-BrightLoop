@@ -6,9 +6,11 @@ A clear, unified workspace for recurring subscriptions, billing runs, invoicing,
 
 ## 🌟 Overview
 
-Brightloop is a production-grade subscription management and automated billing engine built with **Django 5.2** and **Python 3.11+**. It manages the complete contract-to-cash lifecycle for recurring software businesses:
+Brightloop is a production-grade subscription management and automated billing engine built with **Django 5.2** and **Python 3.11+**. It manages the complete contract-to-cash lifecycle for recurring software businesses, from product and plan configuration to subscription management, automated billing, payment collection, and revenue analytics.
 
-$$\text{Product \& Plan Setup} \longrightarrow \text{Quotations} \longrightarrow \text{Subscriptions} \longrightarrow \text{Automated Billing} \longrightarrow \text{Payment Collection} \longrightarrow \text{Revenue Analytics}$$
+### 🔄 Contract-to-Cash Lifecycle
+
+**Product & Plan Setup** → **Quotations** → **Subscriptions** → **Automated Billing** → **Payment Collection** → **Revenue Analytics**
 
 ### Core Problems Solved
 - **No Missed Renewals**: Scheduled automation tracks next billing dates, automatically triggering recurring cycles or retries for failed payments.
