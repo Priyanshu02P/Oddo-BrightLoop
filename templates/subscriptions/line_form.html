@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{% if line %}Edit line{% else %}Add line{% endif %} · {{ subscription.number }} · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'subscriptions:subscription_list' %}">Subscriptions</a> / <a href="{% url 'subscriptions:subscription_detail' subscription.pk %}">{{ subscription.number }}</a></p>
+<h1>{% if line %}Edit line{% else %}Add line{% endif %}</h1>
+<form method="post" novalidate class="panel">{% csrf_token %}
+  {% for error in form.non_field_errors %}<div class="alert error" role="alert">{{ error }}</div>{% endfor %}
+  {% include "accounts/_field.html" with field=form.product %}
+  {% include "accounts/_field.html" with field=form.variant %}
+  {% include "accounts/_field.html" with field=form.quantity %}
+  <div class="field"><label style="display:flex;gap:.5rem;align-items:center">{{ form.is_addon }} {{ form.is_addon.label }}</label>{{ form.is_addon.errors }}</div>
+  <p class="help">The unit price and tax are taken from the catalog when you save; they can't be typed in.</p>
+  <div class="actions">
+    <button class="btn" type="submit">Save line</button>
+    <a href="{% url 'subscriptions:subscription_detail' subscription.pk %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Subscriptions · Brightloop{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Subscriptions</h1>
+  <a class="btn" href="{% url 'subscriptions:subscription_create' %}">Create subscription</a>
+</div>
+<form method="get" class="panel" style="margin-bottom:1rem">
+  <div style="display:grid;gap:0 1rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
+    <div class="field"><label for="q">Search</label>
+      <input type="text" id="q" name="q" value="{{ filters.q }}" placeholder="Number or customer email"></div>
+    <div class="field"><label for="status">Status</label>
+      <select id="status" name="status"><option value="">All</option>
+        {% for value, label in statuses %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="plan">Plan</label>
+      <select id="plan" name="plan"><option value="">All</option>
+        {% for plan in plans %}<option value="{{ plan.pk }}" {% if filters.plan == plan.pk %}selected{% endif %}>{{ plan.name }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="renewal_mode">Renewal mode</label>
+      <select id="renewal_mode" name="renewal_mode"><option value="">All</option>
+        {% for value, label in renewal_modes %}<option value="{{ value }}" {% if filters.renewal_mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></div>
+  </div>
+  <div class="option"><label style="display:flex;gap:.5rem;align-items:center">
+    <input type="checkbox" name="payment_failed" value="1" {% if filters.payment_failed %}checked{% endif %}> Payment failed only</label></div>
+  <div class="actions"><button class="btn secondary" type="submit">Apply filters</button><a href="{% url 'subscriptions:subscription_list' %}">Clear</a></div>
+</form>
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr><th>Number</th><th>Customer</th><th>Plan</th><th>Start</th><th>Expiry</th><th>Next billing</th><th>Renewal</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for subscription in page %}
+        <tr>
+          <td><a href="{% url 'subscriptions:subscription_detail' subscription.pk %}">{{ subscription.number }}</a></td>
+          <td>{{ subscription.customer.user.email }}</td>
+          <td>{{ subscription.plan.name }}</td>
+          <td>{{ subscription.start_date|date:"Y-m-d" }}</td>
+          <td>{{ subscription.expiry_date|date:"Y-m-d" }}</td>
+          <td>{{ subscription.next_billing_date|date:"Y-m-d"|default:"—" }}</td>
+          <td>{{ subscription.plan.get_renewal_mode_display }}</td>
+          <td><span class="badge {{ subscription.status }}">{{ subscription.get_status_display }}</span>
+            {% if subscription.payment_failed %}<span class="badge warning">Payment failed</span>{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8">No subscriptions match. <a href="{% url 'subscriptions:subscription_create' %}">Create subscription</a> to get started.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&q={{ filters.q|urlencode }}&status={{ filters.status }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}&q={{ filters.q|urlencode }}&status={{ filters.status }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

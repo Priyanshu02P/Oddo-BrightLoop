@@ -1,0 +1,14 @@
+{% if subscription.payment_failed %}
+  <div class="alert warning" role="alert"><strong>Payment failed.</strong> The renewal payment was not received. This is a warning flag; the subscription status above is unchanged.</div>
+{% endif %}
+{% if subscription.status == "draft" %}
+  <p class="help">Draft — the quotation has not been sent yet.</p>
+{% elif subscription.status == "quotation" %}
+  <p class="help">Awaiting the customer's response{% if subscription.valid_until %} until {{ subscription.valid_until|date:"Y-m-d" }}{% endif %}.</p>
+{% elif subscription.status == "confirmed" %}
+  <p class="help">Accepted. It becomes Active on {{ subscription.start_date|date:"Y-m-d" }}.</p>
+{% elif subscription.status == "paused" %}
+  <p class="help">Billing is paused. This subscription is excluded from billing runs until it is resumed.</p>
+{% elif subscription.status == "closed" %}
+  <p class="help">Closed — history is read-only.</p>
+{% endif %}

@@ -1,0 +1,8 @@
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: brightloop-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP; local machine only
+      - "127.0.0.1:8025:8025" # Web inbox; local machine only

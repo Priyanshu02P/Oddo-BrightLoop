@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{% if quotation_template %}Edit {{ quotation_template.name }}{% else %}Create template{% endif %} · Brightloop{% endblock %}
+{% block content %}
+<style>
+  .grid { display: grid; gap: 0 1.25rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+  fieldset { border: 0; padding: 0; margin: 0 0 1.25rem; }
+  legend { font-weight: 700; font-size: 1.1rem; margin-bottom: .6rem; }
+  .lines td { vertical-align: top; }
+  .lines .field { margin: 0; }
+</style>
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'subscriptions:template_list' %}">Quotation templates</a></p>
+<h1>{% if quotation_template %}Edit template{% else %}Create template{% endif %}</h1>
+<form method="post" novalidate class="panel">{% csrf_token %}
+  {% for error in form.non_field_errors %}<div class="alert error" role="alert">{{ error }}</div>{% endfor %}
+  <fieldset>
+    <legend>Template details</legend>
+    <div class="grid">
+      {% include "accounts/_field.html" with field=form.name %}
+      {% include "accounts/_field.html" with field=form.plan %}
+      {% include "accounts/_field.html" with field=form.validity_days %}
+    </div>
+    <p class="help">Validity is how many days a quotation made from this template stays open for acceptance.</p>
+  </fieldset>
+  <fieldset>
+    <legend>Product lines</legend>
+    <p class="help">Prices are not stored on a template. They are calculated from the catalog when a subscription is created from it.</p>
+    {{ formset.management_form }}
+    {% for error in formset.non_form_errors %}<div class="alert error" role="alert">{{ error }}</div>{% endfor %}
+    <div class="tablewrap">
+      <table class="lines">
+        <thead><tr><th>Product</th><th>Variant</th><th>Quantity</th><th>Add-on</th><th>Remove</th></tr></thead>
+        <tbody id="line-rows">
+          {% for line_form in formset %}{% include "subscriptions/_template_line_row.html" %}{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <template id="line-row-template">{% include "subscriptions/_template_line_row.html" with line_form=formset.empty_form %}</template>
+    <div class="actions" style="margin-top:.75rem"><button class="btn secondary" type="button" id="add-line">Add line</button></div>
+  </fieldset>
+  {% if quotation_template %}<p class="help">Saving changes the template only. Subscriptions already created from it keep their own lines.</p>{% endif %}
+  <div class="actions">
+    <button class="btn" type="submit">Save template</button>
+    <a href="{% url 'subscriptions:template_list' %}">Cancel</a>
+  </div>
+</form>
+<script>
+  (function () {
+    var rows = document.getElementById("line-rows");
+    var total = document.getElementById("id_lines-TOTAL_FORMS");
+    document.getElementById("add-line").addEventListener("click", function () {
+      var html = document.getElementById("line-row-template").innerHTML;
+      rows.insertAdjacentHTML("beforeend", html.replace(/__prefix__/g, total.value));
+      total.value = Number(total.value) + 1;
+    });
+  })();
+</script>
+{% endblock %}

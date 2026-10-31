@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ subscription.number }} · Subscriptions · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'subscriptions:subscription_list' %}">Subscriptions</a> / {{ subscription.number }}</p>
+<div class="head">
+  <h1>{{ subscription.number }} <span class="badge {{ subscription.status }}">{{ subscription.get_status_display }}</span>
+    {% if subscription.payment_failed %}<span class="badge warning">Payment failed</span>{% endif %}</h1>
+  <div class="actions">
+    {% for key, action in actions %}
+      <a class="btn {% if action.danger %}danger{% else %}secondary{% endif %}" href="{% url 'subscriptions:subscription_action' subscription.pk key %}">{{ action.label }}</a>
+    {% endfor %}
+  </div>
+</div>
+{% include "subscriptions/_status_notes.html" %}
+<h2>Overview</h2>
+{% include "subscriptions/_overview.html" %}
+<div class="head" style="margin-top:1.5rem">
+  <h2>Subscription lines</h2>
+  {% if editable %}<a class="btn secondary" href="{% url 'subscriptions:line_add' subscription.pk %}">Add line</a>{% endif %}
+</div>
+{% include "subscriptions/_lines_table.html" %}
+<h2 style="margin-top:1.5rem">Activity history</h2>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>When</th><th>Who</th><th>What</th><th>Change</th></tr></thead>
+    <tbody>
+      {% for entry in activity %}
+        <tr>
+          <td>{{ entry.created_at|date:"Y-m-d H:i" }} UTC</td>
+          <td>{% if entry.actor %}{{ entry.actor.email }}{% else %}System (scheduled job){% endif %}</td>
+          <td>{{ entry.action }}</td>
+          <td>{% if entry.to_status %}{{ entry.from_status|default:"—" }} → {{ entry.to_status }}{% else %}—{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">No activity recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

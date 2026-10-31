@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load rbac %}
+{% block title %}Dashboard · Brightloop{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div><p class="eyebrow">Workspace overview</p><h1>Welcome back, {{ user.email }}</h1><p class="page-description">Here's an overview of your subscription business.</p></div>
+  <div class="actions">
+    {% if user|can:"manage_subscriptions" %}<a class="btn" href="{% url 'subscriptions:subscription_create' %}">＋ New subscription</a>{% endif %}
+  </div>
+</div>
+<div class="stat-grid">
+  <article class="stat-card"><div class="stat-top"><span>Active subscriptions</span><span class="stat-icon">▣</span></div><strong>{{ active_subscription_count }}</strong><small>Currently active</small></article>
+  <article class="stat-card"><div class="stat-top"><span>Total subscriptions</span><span class="stat-icon">↗</span></div><strong>{{ subscription_count }}</strong><small>Across all statuses</small></article>
+  <article class="stat-card"><div class="stat-top"><span>Customers</span><span class="stat-icon">♙</span></div><strong>{{ customer_count }}</strong><small>Registered customer accounts</small></article>
+  <article class="stat-card"><div class="stat-top"><span>Catalog products</span><span class="stat-icon">▦</span></div><strong>{{ product_count }}</strong><small>Active products</small></article>
+  <article class="stat-card"><div class="stat-top"><span>Payment issues</span><span class="stat-icon alert-icon">!</span></div><strong>{{ payment_failed_count }}</strong><small>Subscriptions flagged for payment failure</small></article>
+</div>
+<div class="dashboard-columns">
+  <section class="panel recent-panel">
+    <div class="section-heading"><div><p class="eyebrow">Latest activity</p><h2>Recent subscriptions</h2></div>{% if user|can:"manage_subscriptions" %}<a href="{% url 'subscriptions:subscription_list' %}">View all →</a>{% endif %}</div>
+    <div class="tablewrap compact-table"><table><thead><tr><th>Subscription</th><th>Customer</th><th>Plan</th><th>Status</th></tr></thead><tbody>
+      {% for item in recent_subscriptions %}<tr><td><a href="{% url 'subscriptions:subscription_detail' item.pk %}">{{ item.number }}</a></td><td>{{ item.customer.user.email }}</td><td>{{ item.plan.name }}</td><td><span class="badge {{ item.status }}">{{ item.get_status_display }}</span>{% if item.payment_failed %} <span class="badge warning">Payment failed</span>{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="4" class="empty-state">No subscriptions yet. Create your first subscription to see it here.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <aside class="panel quick-panel"><p class="eyebrow">Get started</p><h2>Quick access</h2>
+    {% if user|can:"manage_catalog" %}<a class="quick-link" href="{% url 'catalog:product_list' %}"><span class="quick-icon">▦</span><span><strong>Product catalog</strong><small>{{ product_count }} active products</small></span><b>→</b></a>
+    <a class="quick-link" href="{% url 'plans:plan_list' %}"><span class="quick-icon">✧</span><span><strong>Subscription plans</strong><small>{{ plan_count }} configured plans</small></span><b>→</b></a>{% endif %}
+    {% if user|can:"manage_quotation_templates" %}<a class="quick-link" href="{% url 'subscriptions:template_list' %}"><span class="quick-icon">▤</span><span><strong>Quotation templates</strong><small>Reusable subscription setups</small></span><b>→</b></a>{% endif %}
+    {% if user|can:"manage_subscriptions" %}<a class="quick-link" href="{% url 'subscriptions:subscription_list' %}"><span class="quick-icon">▣</span><span><strong>Subscriptions</strong><small>Manage customer subscriptions</small></span><b>→</b></a>{% endif %}
+  </aside>
+</div>
+{% endblock %}
+{% block extra_head %}<style>
+.stat-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:13px;margin-bottom:22px}.stat-card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;box-shadow:var(--shadow);min-width:0}.stat-top{display:flex;justify-content:space-between;align-items:center;gap:7px;color:var(--muted);font-size:11px;font-weight:600}.stat-icon{font-size:16px;color:var(--brand)}.stat-card>strong{display:block;font:800 27px Manrope,sans-serif;letter-spacing:-1px;margin:13px 0 4px}.stat-card>small{font-size:10px;color:var(--muted)}.alert-icon{color:var(--bad)}.dashboard-columns{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(250px,.85fr);gap:18px}.section-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:12px}.section-heading .eyebrow{margin-bottom:4px}.section-heading h2,.quick-panel h2{margin:0}.section-heading>a{font-size:11px;font-weight:700}.compact-table{border:0;box-shadow:none}.compact-table th{font-size:9px}.compact-table th,.compact-table td{padding:11px 9px}.compact-table td{font-size:11px}.empty-state{text-align:center;color:var(--muted);padding:26px!important}.quick-panel{padding:20px}.quick-panel .eyebrow{margin-bottom:5px}.quick-link{display:flex;align-items:center;gap:11px;padding:14px 0;border-bottom:1px solid var(--line);color:var(--ink)}.quick-link:last-child{border-bottom:0}.quick-link:hover{text-decoration:none}.quick-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:5px;background:var(--good-bg);color:var(--brand);font-size:17px}.quick-link span:nth-child(2){display:flex;flex-direction:column;gap:4px;flex:1}.quick-link strong{font-size:11px}.quick-link small{font-size:10px;color:var(--muted)}.quick-link>b{color:var(--muted)}
+@media(max-width:1150px){.stat-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-columns{grid-template-columns:1fr}}@media(max-width:420px){.stat-grid{grid-template-columns:1fr 1fr;gap:8px}.stat-card{padding:12px}.stat-card>strong{font-size:23px}}
+</style>{% endblock %}

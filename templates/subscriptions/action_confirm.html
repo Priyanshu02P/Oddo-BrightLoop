@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ action.label }} · {{ subscription.number }} · Brightloop{% endblock %}
+{% block content %}
+<h1>{{ action.label }}</h1>
+<div class="panel">
+  <p>Subscription <strong>{{ subscription.number }}</strong> ({{ subscription.plan.name }}) is currently <strong>{{ subscription.get_status_display }}</strong>.</p>
+  <p>{{ action.explanation }}</p>
+  <form method="post">{% csrf_token %}
+    <div class="actions">
+      <button class="btn {% if action.danger %}danger{% endif %}" type="submit">{{ action.label }}</button>
+      <a href="{{ detail_url }}">Back</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

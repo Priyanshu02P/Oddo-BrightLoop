@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ subscription.number }} · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'portal_subscriptions:subscription_list' %}">My subscriptions</a> / {{ subscription.number }}</p>
+<div class="head">
+  <h1>{{ subscription.number }} <span class="badge {{ subscription.status }}">{{ subscription.get_status_display }}</span></h1>
+  <div class="actions">
+    {% for key, action in actions %}
+      <a class="btn {% if action.danger %}danger{% else %}secondary{% endif %}" href="{% url 'portal_subscriptions:subscription_action' subscription.pk key %}">{{ action.label }}</a>
+    {% endfor %}
+  </div>
+</div>
+{% if subscription.status == "quotation" and subscription.valid_until %}
+  <div class="alert warning" role="status">Please review and accept this quotation by {{ subscription.valid_until|date:"Y-m-d" }}. After that date it can no longer be accepted.</div>
+{% endif %}
+{% include "subscriptions/_status_notes.html" %}
+<h2>Overview</h2>
+{% include "subscriptions/_overview.html" %}
+<h2 style="margin-top:1.5rem">Subscription lines</h2>
+{% include "subscriptions/_lines_table.html" with editable=False %}
+{% endblock %}

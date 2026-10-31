@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}{{ plan.name }} · Plans · Brightloop{% endblock %}
+{% block content %}
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'plans:plan_list' %}">Plans</a> / {{ plan.name }}</p>
+<div class="head">
+  <h1>{{ plan.name }} <span class="badge {{ plan.availability }}">{{ plan.availability_label }}</span></h1>
+  <a class="btn secondary" href="{% url 'plans:plan_edit' plan.pk %}">Edit plan</a>
+</div>
+{% if plan.availability == "ended" %}
+  <div class="alert warning">This plan's availability window has ended. It can't be selected for new subscriptions; existing subscriptions may keep using it.</div>
+{% elif plan.availability == "upcoming" %}
+  <div class="alert warning">This plan is not available yet. It can be selected for new subscriptions from {{ plan.availability_start_date|date:"Y-m-d" }}.</div>
+{% endif %}
+<div class="panel">
+  <table>
+    <tbody>
+      <tr><th scope="row">Price (before tax)</th><td>{{ plan.price|floatformat:"2g" }}</td></tr>
+      <tr><th scope="row">Billing period</th><td>{{ plan.get_billing_period_display }}</td></tr>
+      <tr><th scope="row">Minimum quantity</th><td>{{ plan.minimum_quantity }}</td></tr>
+      <tr><th scope="row">Availability window</th><td>{{ plan.availability_start_date|date:"Y-m-d" }} to {{ plan.availability_end_date|date:"Y-m-d" }} <span class="help">— both dates included</span></td></tr>
+      <tr><th scope="row">Renewal mode</th><td>{{ plan.get_renewal_mode_display }}</td></tr>
+    </tbody>
+  </table>
+</div>
+<h2>Lifecycle options</h2>
+<p class="help">These settings control which actions are allowed on subscriptions that use this plan.</p>
+<div class="panel">
+  <table>
+    <tbody>
+      <tr><th scope="row">Auto-close at end date</th><td>{{ plan.auto_close_at_end_date|yesno:"Enabled,Disabled" }}</td></tr>
+      <tr><th scope="row">Close early</th><td>{{ plan.allow_close_early|yesno:"Enabled,Disabled" }}</td></tr>
+      <tr><th scope="row">Pause</th><td>{{ plan.allow_pause|yesno:"Enabled,Disabled" }}</td></tr>
+      <tr><th scope="row">Renew</th><td>{{ plan.allow_renew|yesno:"Enabled,Disabled" }}</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}

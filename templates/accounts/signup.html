@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Create account · Brightloop{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<h1>Create a customer account</h1>
+<div class="panel">
+  {% if throttled %}{% include "accounts/_throttled.html" %}{% endif %}
+  <form method="post" novalidate>{% csrf_token %}
+    {% include "accounts/_field.html" with field=form.email %}
+    {% include "accounts/_field.html" with field=form.password1 %}
+    {% include "accounts/_password_policy.html" %}
+    <div style="height:1rem"></div>
+    {% include "accounts/_field.html" with field=form.password2 %}
+    <button class="btn" type="submit">Create account</button>
+  </form>
+  <div class="links"><a href="{% url 'accounts:login' %}">Already have an account? Sign in</a></div>
+</div>
+{% endblock %}

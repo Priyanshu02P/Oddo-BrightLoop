@@ -1,0 +1,73 @@
+{% load static rbac %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Brightloop{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'brightloop/dashboard.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+{% if user.is_authenticated %}
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="{% url 'accounts:home' %}"><span class="brand-mark">✳</span><span>brightloop</span></a>
+    <div class="sidebar-scroll">
+      {% if user|can:"view_dashboard" %}
+      <section class="nav-group"><div class="nav-label">Workspace</div>
+        <a class="nav-item {% if request.resolver_match.url_name == 'internal_home' %}active{% endif %}" href="{% url 'accounts:internal_home' %}"><span class="nav-icon">⌂</span>Dashboard</a>
+        {% if user|can:"manage_users" %}<a class="nav-item {% if request.resolver_match.url_name == 'user_management' or request.resolver_match.url_name == 'staff_create' %}active{% endif %}" href="{% url 'accounts:user_management' %}"><span class="nav-icon">♙</span>Team members</a>{% endif %}
+        {% if user|can:"manage_subscriptions" %}<a class="nav-item {% if request.resolver_match.namespace == 'subscriptions' and request.resolver_match.url_name == 'subscription_list' %}active{% endif %}" href="{% url 'subscriptions:subscription_list' %}"><span class="nav-icon">▣</span>Subscriptions</a>{% endif %}
+        {% if user|can:"manage_quotation_templates" %}<a class="nav-item {% if request.resolver_match.url_name|slice:":8" == 'template' %}active{% endif %}" href="{% url 'subscriptions:template_list' %}"><span class="nav-icon">▤</span>Quotations</a>{% endif %}
+      </section>
+      {% endif %}
+      {% if user|can:"manage_catalog" %}
+      <section class="nav-group"><div class="nav-label">Configure</div>
+        <a class="nav-item {% if request.resolver_match.namespace == 'catalog' %}active{% endif %}" href="{% url 'catalog:product_list' %}"><span class="nav-icon">▦</span>Catalog</a>
+        <a class="nav-item {% if request.resolver_match.namespace == 'plans' %}active{% endif %}" href="{% url 'plans:plan_list' %}"><span class="nav-icon">✧</span>Plans</a>
+      </section>
+      {% endif %}
+      {% if user|can:"access_customer_portal" %}
+      <section class="nav-group"><div class="nav-label">My workspace</div>
+        <a class="nav-item {% if request.resolver_match.url_name == 'portal_home' %}active{% endif %}" href="{% url 'accounts:portal_home' %}"><span class="nav-icon">⌂</span>Overview</a>
+        <a class="nav-item {% if request.resolver_match.url_name == 'subscription_list' and request.resolver_match.namespace == 'portal_subscriptions' %}active{% endif %}" href="{% url 'portal_subscriptions:subscription_list' %}"><span class="nav-icon">▣</span>My subscriptions</a>
+        <a class="nav-item {% if request.resolver_match.url_name == 'portal_account' %}active{% endif %}" href="{% url 'accounts:portal_account' %}"><span class="nav-icon">⚙</span>Account & security</a>
+      </section>
+      {% endif %}
+    </div>
+    <div class="sidebar-bottom"><div class="help-link">? <span>Brightloop workspace</span></div>
+      <div class="profile"><div class="avatar">{{ user.email|slice:":1"|upper }}</div><div class="profile-copy"><strong>{{ user.email }}</strong><small>{{ user.get_role_display }}</small></div><span class="profile-more">•••</span></div>
+    </div>
+  </aside>
+  <div class="main-column">
+    <header class="topbar"><button class="mobile-menu" type="button" id="menuToggle" aria-label="Open navigation">☰</button>
+      <div class="workspace-pill"><span class="status-dot"></span> Production workspace <span class="chevron">⌄</span></div>
+      <div class="topbar-spacer"></div><button class="icon-button" type="button" id="themeToggle" aria-label="Toggle color theme">◐</button>
+      <div class="top-divider"></div><div class="top-user"><div class="avatar small">{{ user.email|slice:":1"|upper }}</div><div class="top-user-copy"><strong>{{ user.email }}</strong><small>{{ user.get_role_display }}</small></div></div>
+      <form class="logout-form" method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}<button class="logout-button" type="submit">Sign out</button></form>
+    </header>
+{% else %}
+<div class="auth-shell"><a class="brand auth-brand" href="{% url 'accounts:home' %}"><span class="brand-mark">✳</span><span>brightloop</span></a>
+{% endif %}
+    <main class="{% if user.is_authenticated %}page-content{% else %}auth-content{% endif %}">
+      {% for message in messages %}<div class="alert {{ message.tags }}" role="status">{{ message }}</div>{% endfor %}
+      {% block content %}{% endblock %}
+    </main>
+{% if user.is_authenticated %}
+    <footer class="app-footer"><span>Brightloop</span><span>Subscription workspace</span></footer>
+  </div>
+</div>
+{% else %}
+</div>
+{% endif %}
+<script>
+(() => {
+ const body=document.body, toggle=document.getElementById('menuToggle'), sidebar=document.getElementById('sidebar');
+ if(toggle && sidebar) toggle.addEventListener('click',()=>sidebar.classList.toggle('open'));
+ const theme=document.getElementById('themeToggle');
+ if(theme){ if(localStorage.getItem('brightloop-theme')==='dark') body.classList.add('dark-theme'); theme.addEventListener('click',()=>{body.classList.toggle('dark-theme');localStorage.setItem('brightloop-theme',body.classList.contains('dark-theme')?'dark':'light')}) }
+ document.addEventListener('submit',e=>{const b=e.target.querySelector('button[type=submit]');if(b)setTimeout(()=>b.disabled=true,0)});
+})();
+</script>
+{% block extra_js %}{% endblock %}
+</body></html>

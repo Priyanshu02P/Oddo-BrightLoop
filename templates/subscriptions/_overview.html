@@ -1,0 +1,15 @@
+<div class="panel">
+  <table>
+    <tbody>
+      <tr><th scope="row">Customer</th><td>{{ subscription.customer }}</td></tr>
+      <tr><th scope="row">Plan</th><td>{{ subscription.plan.name }}</td></tr>
+      <tr><th scope="row">Start date</th><td>{{ subscription.start_date|date:"Y-m-d" }}</td></tr>
+      <tr><th scope="row">Expiry date</th><td>{{ subscription.expiry_date|date:"Y-m-d" }}</td></tr>
+      <tr><th scope="row">Renewal mode</th><td>{{ subscription.plan.get_renewal_mode_display }}</td></tr>
+      <tr><th scope="row">Payment terms</th><td>{{ subscription.payment_terms.name }}</td></tr>
+      <tr><th scope="row">Next billing date</th><td>{{ subscription.next_billing_date|date:"Y-m-d"|default:"Not scheduled" }}</td></tr>
+      {% if subscription.valid_until %}<tr><th scope="row">Quotation valid until</th><td>{{ subscription.valid_until|date:"Y-m-d" }}</td></tr>{% endif %}
+      {% if subscription.closed_reason %}<tr><th scope="row">Closed because</th><td>{{ subscription.get_closed_reason_display }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+</div>

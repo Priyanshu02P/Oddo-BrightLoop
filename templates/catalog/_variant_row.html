@@ -1,0 +1,26 @@
+<tr data-variant-row>
+  <td>
+    {{ variant_form.id }}
+    <div class="field">
+      <label class="sr-only" for="{{ variant_form.dimension.id_for_label }}">Dimension</label>
+      {{ variant_form.dimension }}{{ variant_form.dimension.errors }}
+    </div>
+  </td>
+  <td>
+    <div class="field">
+      <label class="sr-only" for="{{ variant_form.value.id_for_label }}">Value</label>
+      {{ variant_form.value }}{{ variant_form.value.errors }}
+    </div>
+  </td>
+  <td>
+    <div class="field">
+      <label class="sr-only" for="{{ variant_form.price_adjustment.id_for_label }}">Price adjustment</label>
+      {{ variant_form.price_adjustment }}{{ variant_form.price_adjustment.errors }}
+    </div>
+  </td>
+  <td class="num"><output data-preview aria-live="polite">—</output></td>
+  <td>
+    <label class="sr-only" for="{{ variant_form.DELETE.id_for_label }}">Remove this variant value</label>
+    {{ variant_form.DELETE }}
+  </td>
+</tr>
