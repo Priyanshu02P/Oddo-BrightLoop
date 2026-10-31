@@ -1,7 +1,7 @@
 """Email boundary for M4 (NFR-9). Callers handle delivery failure themselves."""
 
 from django.conf import settings
-from django.core.mail import EmailMessage, get_connection
+from django.core.mail import EmailMessage
 
 
 def send_quotation_email(subscription):
@@ -16,5 +16,4 @@ def send_quotation_email(subscription):
         body=body,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[subscription.customer.user.email],
-        connection=get_connection(settings.MAILERS["default"]["BACKEND"]),
     ).send(fail_silently=False)
