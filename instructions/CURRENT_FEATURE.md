@@ -1,1265 +1,1465 @@
-# M7. Payments
+# M9. Taxes and Payment Terms
 
 **Document type:** Feature specification and implementation baseline\
 **Product:** Brightloop Subscription Management System\
-**Module:** M7 --- Payments\
-**Requirement coverage:** FR-7.1 through FR-7.9\
+**Module:** M9 --- Taxes and Payment Terms (Admin Configuration)\
+**Requirement coverage:** FR-9.1 through FR-9.3\
 **Status:** Derived implementation baseline; unresolved policy details
 remain open\
-**Primary source documents:** `REQUIREMENTS.md`, `UI_UX.md`,
-`CODING_STANDARDS.md`
+**Sources:** `REQUIREMENTS.md`, `UI_UX.md`, `CODING_STANDARDS.md`
 
 ------------------------------------------------------------------------
 
 ## 1. Purpose and scope
 
-M7 provides payment recording, payment collection abstraction, invoice
-payment-state updates, payment history, overdue-invoice identification,
-and dunning reminders for the Brightloop Subscription Management System.
+M9 provides Admin-managed configuration consumed by Product Catalog,
+Subscriptions, and Invoicing.
 
-Staff can record a payment against an invoice by supplying its method,
-amount, date, and an optional note. A payment belongs to exactly one
-invoice. Partial payments are not allowed: the submitted amount must
-equal the invoice total. When payment collection succeeds, the invoice
-moves to `Paid`.
+-   **Taxes:** Admin maintains named tax rates. Each Product references
+    one Tax. Tax is product-based; there is no customer-location or
+    region logic.
+-   **Payment terms:** Admin maintains named due-date rules such as
+    Immediate, Net 15, and Net 30. A Subscription selects a payment
+    term, and M5 derives invoice due dates from it.
 
-M7 owns payment records, payment-provider orchestration, payment
-idempotency, payment outcome handling, and overdue/dunning processing.
-M5 remains the owner of invoices and their lifecycle/status transitions.
-M7 requests the invoice transition through the M5 service boundary; it
-must not directly assign invoice status.
-
-The MVP supports manual payment recording and a fake/mock gateway for
-development and testing. It does not integrate a real payment gateway.
+M9 owns tax and payment-term configuration. M2 owns Product records and
+their tax relationship; M4 owns Subscription configuration and its
+selected payment term; M5 owns invoice tax calculation and due-date
+generation.
 
 ### 1.1 Goals
 
--   Let Admin and Staff record and inspect payments.
--   Link every payment to exactly one invoice.
--   Support multiple payment methods and payment dates.
--   Reject partial, excessive, or otherwise mismatched payment amounts.
--   Move an invoice to `Paid` only after successful payment.
--   Abstract payment collection behind a small `PaymentProvider`
-    interface.
--   Ship a mock provider that simulates success, failure, and delay.
--   Prevent duplicate payment submissions.
--   Make paid, outstanding, and overdue invoices easy to identify.
--   Send automatic overdue reminders using the configured dunning
-    cadence.
--   Keep payment, invoice, and notification failures safe, visible, and
-    auditable.
+-   Let Admin manage taxes by name and rate.
+-   Ensure each Product references one Tax.
+-   Let Admin manage payment terms and make them selectable on
+    Subscriptions.
+-   Supply M5 with persisted configuration rather than duplicating tax
+    rates or payment-term choices in code.
+-   Preserve clear ownership boundaries and financial history.
 
 ### 1.2 In scope
 
--   Admin/Staff payment list and payment detail.
--   Admin/Staff record-payment flow.
--   Payment method, amount, date, note, invoice relationship, reference,
-    and outcome.
--   Exact invoice-total validation; no partial payments.
--   Successful-payment invoice transition to `Paid`.
--   Multiple methods and dates across payment records.
--   `PaymentProvider` abstraction.
--   Fake/mock payment provider with success, failure, and delay
-    outcomes.
--   Duplicate-payment prevention using an idempotency key or equivalent
-    duplicate check.
--   Paid vs. outstanding invoice visibility.
--   Overdue definition and overdue invoice follow-up list.
--   Automated overdue reminder emails (dunning).
--   Safe retry behavior and operational logging.
--   Tests for permissions, amount validation, provider outcomes, invoice
-    transitions, idempotency, and dunning.
+-   Admin-only tax list, create, and edit.
+-   Tax name and rate.
+-   One Tax reference per Product.
+-   Admin-only payment-term list, create, and edit.
+-   Payment-term name and due-date rule / number of days.
+-   Examples: Immediate, Net 15, Net 30.
+-   Subscription selection of a configured payment term.
+-   M5 integration for invoice tax and due-date calculations.
+-   Validation, permissions, auditability, migrations, and tests.
 
 ### 1.3 Out of scope
 
-Do not add the following unless a separate requirement or product
-decision authorizes them:
-
--   Real payment-gateway integrations.
--   Customer-facing online payment or checkout.
--   Partial payments, split payments, deposits, or payment allocations
-    across invoices.
--   One payment linked to multiple invoices.
--   One invoice settled by multiple separate payment records.
--   Refunds, chargebacks, reversals, credit notes, or payment
-    cancellation workflows.
--   Stored cards, bank mandates, wallets, or payment-method
-    tokenization.
--   Multi-currency or foreign-exchange handling.
--   Customer-entered payment references as proof of settlement unless an
-    explicit verification workflow is defined.
--   A configurable payment-method administration module.
--   A customer payment portal action.
--   Dunning cadence customization UI unless separately approved.
--   Subscription pause/close policy changes beyond the currently
-    documented dunning working assumption.
+Do not add without approval: - Region-, country-, or
+customer-location-based tax logic. - Multiple taxes per Product. - Tax
+exemptions, reverse charge, withholding tax, filing, or tax registration
+workflows. - Multi-currency or multi-company tax handling. - Invoice tax
+calculation inside M9; M5 owns it. - Payment collection or payment
+gateway functionality. - Business-day calendars, holiday adjustments, or
+end-of-month rules not defined by the source. - Customer-managed tax or
+payment-term configuration. - Destructive deletion of referenced
+configuration without an approved lifecycle policy.
 
 ------------------------------------------------------------------------
 
 ## 2. Requirement traceability
 
-FR-7.1 through FR-7.8 are Must requirements. FR-7.9 is Should.
+All M9 requirements are Must priority.
 
   -----------------------------------------------------------------------
-  Requirement             Source requirement      M7 behavior
+  Requirement             Source requirement      M9 behavior
   ----------------------- ----------------------- -----------------------
-  FR-7.1                  Staff can record        Provide an Admin/Staff
-                          method, amount, date,   payment form with those
-                          and note.               fields and an invoice
-                                                  selection.
+  FR-9.1                  Admin manages a list of Admin-only tax
+                          taxes (name, rate).     configuration with name
+                                                  and rate.
 
-  FR-7.2                  Every payment is linked Require one invoice
-                          to exactly one invoice. foreign key; do not
-                                                  support unallocated or
-                                                  multi-invoice payments.
+  FR-9.2                  Each Product references Product has one Tax
+                          one tax. No region or   reference; no
+                          customer logic.         geography-based tax
+                                                  lookup.
 
-  FR-7.3                  Multiple payment        Store method and
-                          methods and dates are   payment date per
-                          supported.              record; do not
-                                                  hard-code a single
-                                                  method/date.
-
-  FR-7.4                  No partial payments;    Validate exact Decimal
-                          amount equals invoice   equality and transition
-                          total; successful       the invoice only on a
-                          payment moves invoice   successful provider
-                          to Paid.                outcome.
-
-  FR-7.5                  Staff can view paid     Provide invoice/payment
-                          vs. outstanding         views and filters
-                          invoices.               exposing Paid and
-                                                  outstanding states.
-
-  FR-7.6                  Overdue means today \>  Derive overdue status
-                          due date and invoice    from the invoice due
-                          status is not Paid.     date and current
-                                                  business date; list
-                                                  overdue invoices for
-                                                  follow-up.
-
-  FR-7.7                  `PaymentProvider`       Define a small provider
-                          abstraction and         boundary and a
-                          fake/mock gateway       test/development mock
-                          supporting success,     implementation.
-                          failure, delay.         
-
-  FR-7.8                  Automatic overdue       Implement scheduled,
-                          reminder emails on a    idempotent dunning
-                          defined cadence.        reminders; use Open
-                                                  Item C's working
-                                                  cadence until
-                                                  confirmed.
-
-  FR-7.9                  Prevent recording the   Use a database-backed
-                          same payment twice.     idempotency key or
-                                                  equivalent duplicate
-                                                  check; treat this as a
-                                                  Should requirement but
-                                                  implement where
-                                                  feasible.
+  FR-9.3                  Admin manages payment   Admin-managed
+                          terms used to compute   payment-term records
+                          invoice due dates.      are selected on
+                                                  Subscriptions and
+                                                  consumed by M5.
   -----------------------------------------------------------------------
 
-### 2.1 Related requirements and business rules
-
--   FR-5.6: Invoice statuses are `Draft → Confirmed → Paid`; `Cancelled`
-    is a terminal side state.
--   FR-5.7: Invoice due date is derived from the subscription's payment
-    terms.
--   FR-5.10: Confirmed invoices are immutable; corrections follow the
-    invoice cancellation policy.
--   FR-4.8: Automatic renewal attempts collection; failure flags the
-    subscription `payment_failed`, emails the customer, notifies Staff,
-    and applies the grace-period rule.
--   FR-4.14: Subscription moves from Confirmed to Active on its start
-    date under the current working assumption, not necessarily on
-    payment.
--   BR-6: A payment must equal the invoice total; partial payments are
-    not allowed.
--   BR-7: An invoice becomes Paid only after successful payment.
--   Open Item C: Working dunning cadence is 1, 7, and 14 days past due,
-    then auto-pause the subscription. This remains subject to
-    confirmation.
--   Open Item D: Single currency and single company are working
-    assumptions.
--   Open Item I: Invoice corrections use cancel-only working assumption;
-    a cancelled invoice's billing period remains billed.
--   Open Item J: Monetary rounding is per line, two decimal places,
-    half-up. Payment amount comparison should use stored invoice totals
-    and Decimal arithmetic, not floating-point recomputation.
+Related requirements: - FR-2.3: Each Product has an associated tax. -
+FR-4.3: Each Subscription has payment terms. - FR-5.4: Tax is calculated
+from the tax attached to each Product; each invoice line carries its
+Product's tax rate. - FR-5.7: Invoice due date is derived from
+Subscription payment terms. - BR-8: Tax comes only from the Product's
+tax. - BR-13 / Open Item B: working assumption is tax-exclusive prices,
+with tax added on top. - Open Item G: Admin-managed payment-term list,
+e.g. Immediate, Net 15, Net 30. - Open Item J / NFR-10: fixed-precision
+Decimal money handling; working rounding assumption is per line, 2
+decimals, half-up.
 
 ------------------------------------------------------------------------
 
 ## 3. Roles and permissions
 
-### 3.1 Admin
+### Admin
 
-Admin can:
+Admin can view, create, and edit Tax and PaymentTerm records; select a
+Tax on a Product; and configure a Subscription with an available payment
+term.
 
--   Open the Payments section.
--   View payment lists and details.
--   Record a payment.
--   View paid, outstanding, and overdue invoices.
--   Review payment outcomes and mock-provider test results where the
-    environment permits them.
--   Follow up payment failures and overdue invoices.
+### Staff
 
-The requirements explicitly grant payment recording to Staff and the
-role matrix grants it to Admin as well. No separate Admin-only
-payment-management restriction is defined.
+Staff cannot manage taxes or payment terms. The role-permission matrix
+denies Staff tax/payment-term management. Whether Staff may select an
+existing payment term during subscription creation is not fully
+explicit; follow M4's established permission behavior and confirm if
+unclear.
 
-### 3.2 Internal Staff
+### Customer
 
-Staff can:
+Customers cannot manage configuration. They may see tax amounts and
+totals on their own quotations/invoices, but must not access internal
+configuration or another customer's records.
 
--   Open the Payments section.
--   View payment lists and details.
--   Record a payment against an eligible invoice.
--   View paid vs. outstanding invoices.
--   View and follow up overdue invoices.
--   See safe payment failure or validation messages.
+### Authorization rules
 
-Staff cannot change invoice totals, invoice status directly,
-payment-provider configuration, or customer ownership.
-
-### 3.3 Customer
-
-Customers cannot record payments through the portal under the current
-permission matrix. Customers may view payment information associated
-with their own records where exposed by the portal.
-
-The UI/UX specification explicitly says not to add a customer-facing
-online payment action to the MVP.
-
-### 3.4 Server-side authorization and data isolation
-
--   Enforce payment permissions on every view and service boundary.
--   Default-deny unlisted payment actions.
--   Resolve the acting user and role from the authenticated server-side
-    context.
--   Do not trust a submitted customer ID, invoice total, payment status,
-    provider result, or invoice status.
--   Load the invoice through an ownership/permission-aware selector.
--   Customer-facing payment history must be scoped through the
-    authenticated customer's own invoices.
--   Do not expose another customer's payment records by changing a URL
-    or identifier.
--   Do not expose provider secrets, raw gateway payloads, or internal
-    exception details to users.
+-   Enforce permissions server-side, not only by hiding UI controls.
+-   Default-deny unlisted configuration actions.
+-   Resolve actor identity from the authenticated request.
+-   Do not trust browser-supplied tax rates, tax amounts, or invoice due
+    dates.
+-   Validate Product and Subscription foreign-key references against
+    persisted records.
 
 ------------------------------------------------------------------------
 
-## 4. Domain model
+## 4. Domain model and ownership
 
-The following is a proposed logical model. Field names are illustrative
-and should be aligned with the existing repository conventions before
-implementation. Inspect existing M5 invoice and M1 user/customer models
-before creating relationships.
+The following is a logical proposal; align names with existing models
+and avoid duplicate fields/models.
 
-### 4.1 Payment
-
-Represents a successful or attempted payment associated with one
-invoice.
+### 4.1 Tax
 
   -----------------------------------------------------------------------
   Field                   Suggested type          Purpose
   ----------------------- ----------------------- -----------------------
-  `id`                    UUID / project-standard Stable identifier.
-                          primary key             
+  `id`                    Project-standard PK     Stable identifier.
 
-  `payment_reference`     Unique CharField        Human-readable payment
-                                                  reference.
+  `name`                  CharField               Tax name.
 
-  `invoice`               ForeignKey to Invoice,  Exactly one invoice per
-                          non-null                payment.
+  `rate`                  DecimalField            Tax rate.
 
-  `method`                TextChoices or          Method used to
-                          validated CharField     record/collect payment.
+  `created_at`,           DateTimeField           Timestamps, if project
+  `updated_at`                                    convention requires.
 
-  `amount`                DecimalField            Amount submitted; must
-                                                  equal the invoice
-                                                  total.
-
-  `payment_date`          DateField or            Date supplied for the
-                          project-standard        payment.
-                          date/time type          
-
-  `note`                  TextField, blank        Optional operational
-                          allowed                 note.
-
-  `status`                TextChoices             Proposed outcome state,
-                                                  aligned with provider
-                                                  response.
-
-  `provider_reference`    Nullable CharField      Provider/mock
-                                                  transaction reference,
-                                                  if returned.
-
-  `idempotency_key`       Nullable/unique         Prevents repeated
-                          CharField               submission where used.
-
-  `recorded_by`           ForeignKey to User      Admin/Staff actor who
-                                                  initiated manual
-                                                  recording.
-
-  `created_at`            DateTimeField           Record creation
-                                                  timestamp.
-
-  `updated_at`            DateTimeField           Last update timestamp.
+  `created_by`,           Nullable User FK        Admin audit
+  `updated_by`                                    attribution, if stored
+                                                  on the record.
   -----------------------------------------------------------------------
 
-Suggested payment outcomes are `PENDING`, `SUCCEEDED`, and `FAILED`. The
-requirements do not prescribe exact payment status names or whether
-failed attempts are persisted as Payment rows. Confirm this before
-treating the proposed enum as final.
+The source specifies only name and rate. It does not specify whether 18%
+is stored as `18` or `0.18`, permitted range, zero-rate behavior, name
+uniqueness, or deletion/archive behavior. Confirm these before
+implementation. Use Decimal, never float.
 
-A successful payment must be retained as a durable record. Failed
-attempts may be recorded for operational traceability, but they must not
-cause the invoice to become Paid.
+### 4.2 Product relationship
 
-### 4.2 Payment method
-
-FR-7.1 requires a method field and FR-7.3 requires support for multiple
-methods, but the source does not enumerate the methods.
-
-Implementation options include a validated text field or a `TextChoices`
-enum. Do not invent a fixed business list without confirmation. If an
-enum is used for the initial MVP, document it as a configurable
-implementation assumption and keep the model easy to extend.
-
-### 4.3 PaymentProvider boundary
-
-A small interface abstracts the act of collecting/processing a payment.
-
-Conceptual responsibilities:
-
--   Accept the invoice/payment context and requested amount.
--   Invoke the selected provider implementation.
--   Return a normalized outcome such as success, failure, or
-    pending/delayed.
--   Return a provider reference where applicable.
--   Avoid writing invoice status directly.
--   Avoid owning the database transaction for the invoice lifecycle.
-
-The mock provider must implement the same contract as any future
-provider. Keep the interface minimal; do not introduce a generic plugin
-framework or real gateway integration.
-
-### 4.4 Mock payment outcome
-
-The fake/mock gateway must be able to simulate:
-
--   **Success:** payment succeeds and the invoice can transition to
-    Paid.
--   **Failure:** payment fails; invoice remains unpaid and the failure
-    is visible/logged.
--   **Delay:** provider response is delayed. The system must not
-    prematurely mark the invoice Paid.
-
-Mock outcomes must be clearly labelled as test-mode behavior. A
-simulated payment must never appear to be a real external transaction.
-
-The source does not define whether delay means a synchronous sleep, a
-pending result, or a later callback. Prefer a deterministic
-test-friendly pending/delayed result rather than tying production
-request handling to long sleeps; confirm the exact behavior as an
-implementation decision.
-
-### 4.5 Relationships
+Logical relationship:
 
 ``` text
-Customer 1 ─── * Invoice
-Invoice 1 ─── 0..1 successful Payment (working MVP interpretation)
-Payment * ─── 1 Invoice
-User 1 ─── * Payment (recorded_by)
+Tax 1 ─── * Product
 ```
 
-The requirement says every payment is linked to exactly one invoice. It
-does not explicitly state whether an invoice can have more than one
-successful payment record. Since partial payments are prohibited and
-successful payment settles the full invoice, the working interpretation
-is at most one successful payment per invoice. Failed attempts may be
-multiple if persisted. Confirm whether the domain should enforce one
-successful payment or one payment attempt total per invoice.
+Each Product references one Tax; one Tax may be referenced by multiple
+Products. If M2 already has this relationship, M9 should manage the Tax
+records and coordinate with M2 rather than add a second relationship.
+
+### 4.3 PaymentTerm
+
+  -----------------------------------------------------------------------
+  Field                   Suggested type          Purpose
+  ----------------------- ----------------------- -----------------------
+  `id`                    Project-standard PK     Stable identifier.
+
+  `name`                  CharField               E.g. Immediate, Net 15,
+                                                  Net 30.
+
+  `days`                  IntegerField, if        Number of days used by
+                          approved                the due-date rule.
+
+  `created_at`,           DateTimeField           Timestamps, if project
+  `updated_at`                                    convention requires.
+
+  `created_by`,           Nullable User FK        Admin audit
+  `updated_by`                                    attribution, if stored
+                                                  on the record.
+  -----------------------------------------------------------------------
+
+The UI calls the field "Due-date rule / number of days." A day-count is
+a plausible representation, but calendar vs business days, the base
+date, boundary behavior, and date adjustments are not defined. Do not
+silently decide these semantics.
+
+### 4.4 Ownership boundaries
+
+  -----------------------------------------------------------------------
+  Concern                 Owner                   Responsibility
+  ----------------------- ----------------------- -----------------------
+  Tax records             M9                      Maintain tax
+                                                  configuration.
+
+  Product-to-Tax          M2                      Product references one
+  relationship                                    Tax.
+
+  Subscription            M4                      Store selected
+  payment-term selection                          PaymentTerm.
+
+  Invoice tax calculation M5                      Calculate tax using
+                                                  Product's Tax.
+
+  Invoice due date        M5                      Derive from
+                                                  Subscription's
+                                                  PaymentTerm.
+
+  Reporting               M8                      Consume persisted
+                                                  financial data as
+                                                  defined by reporting
+                                                  requirements.
+  -----------------------------------------------------------------------
+
+M9 must not duplicate invoice calculations or subscription lifecycle
+behavior.
 
 ------------------------------------------------------------------------
 
-## 5. Payment lifecycle and business rules
+## 5. Tax configuration behavior
 
-### 5.1 Invoice payment eligibility
+### 5.1 Tax list and form
 
-Payment recording should be offered for an invoice that is eligible to
-receive payment under the invoice lifecycle.
+Audience: Admin only.
 
-The defined invoice workflow is:
+Required list/form information: - Tax name. - Tax rate.
 
--   `Draft → Confirmed → Paid`
--   `Draft → Cancelled`
--   `Confirmed → Cancelled`
--   `Paid` is final.
--   `Cancelled` is terminal.
+Expected behavior: - Admin can view, create, and edit taxes. - Show an
+empty state when no taxes exist. - Validate input on the server and show
+field-specific errors. - Preserve form input after validation failure
+where possible. - Do not expose management actions to Staff or
+Customers.
 
-The UI/UX describes payment against an invoice, and the workflow implies
-payment follows confirmation. Therefore, the working implementation
-should accept payment only for a `Confirmed` invoice. Do not accept
-payment for Draft, Paid, or Cancelled invoices.
+The source does not require specific search, filters, sorting,
+pagination, or a status column.
 
-### 5.2 Exact amount; no partial payments
+### 5.2 Validation
 
--   The submitted amount must equal the invoice's authoritative stored
-    total.
--   A lower amount is rejected as a partial payment.
--   A higher amount is rejected as an overpayment.
--   Do not accept a payment amount supplied by the browser as
-    authoritative.
--   Load the invoice total from the database on the server.
--   Compare using `Decimal`, never `float`.
--   Do not silently round a mismatched payment into equality.
--   Display a clear validation error when the amount differs from the
-    invoice total.
--   The payment form may prefill the invoice total as a convenience, but
-    server-side validation remains mandatory.
+-   Name is required.
+-   Rate is required and must be numeric.
+-   Store/process rate with Decimal.
+-   Enforce the approved rate representation and range once confirmed.
+-   Reject malformed input.
+-   Never accept a client-computed tax amount as authoritative.
 
-### 5.3 Successful payment
+The exact range, zero-rate policy, and name uniqueness remain open.
 
-Only after the provider reports success:
+### 5.3 Product tax assignment
 
-1.  Persist the successful payment outcome and reference.
-2.  Transition the invoice from Confirmed to Paid through the M5 invoice
-    lifecycle service.
-3.  Record the actor/provider context required for auditability.
-4.  Make the updated Paid state visible in invoice and payment views.
+-   Product create/edit uses the configured Tax list.
+-   Each Product must reference one valid Tax.
+-   Reject missing/invalid Tax references where the one-tax-per-product
+    rule applies.
+-   M5 reads the Product's Tax when generating invoice lines.
+-   Each invoice line carries its Product's tax rate under FR-5.4.
 
-The payment record and invoice transition must be coordinated safely. A
-failed database write must not leave a successful payment record with an
-unpaid invoice or a Paid invoice without its successful payment record.
-Use a transaction and define the provider/database boundary carefully.
+### 5.4 Tax calculation integration
 
-### 5.4 Failed payment
+M9 stores configuration; M5 calculates invoice tax.
 
--   A failed provider outcome must not transition the invoice to Paid.
--   Preserve the invoice's current eligible unpaid status.
--   Return a clear, safe failure message to Admin/Staff.
--   Log the failure with relevant invoice/payment identifiers.
--   Do not expose stack traces, provider credentials, or raw internal
-    errors.
--   If the attempt is persisted, mark it failed and ensure it cannot be
-    mistaken for a successful payment.
--   A retry must be safe and must not duplicate a successful payment.
+Preserve these rules: - Tax comes only from the Product's Tax. - Do not
+use customer address or region. - The working assumption is
+tax-exclusive prices (Open Item B). - Use Decimal and the shared
+money-rounding helper. - The working rounding assumption is per line, 2
+decimal places, half-up (Open Item J), pending confirmation.
 
-### 5.5 Delayed payment
+### 5.5 Historical behavior
 
--   A delayed/pending result is not success.
--   Do not transition the invoice to Paid until success is confirmed.
--   Show a pending/delayed state if the application persists such an
-    attempt.
--   Define how a delayed result is reconciled before implementing
-    asynchronous callbacks or polling; this is not fully specified in
-    the source documents.
+The source does not define whether editing a Tax changes draft
+subscriptions, draft invoices, or future calculations. Confirm this
+policy.
 
-### 5.6 Duplicate prevention and concurrency
-
--   Prevent the same payment submission from being processed twice.
--   Prefer a client-generated idempotency key persisted with a database
-    uniqueness constraint, or a clearly defined duplicate check if keys
-    are not used.
--   A repeated request with the same idempotency key must return the
-    original outcome rather than create a second payment.
--   Protect the invoice/payment operation against concurrent requests
-    using `transaction.atomic()` and `select_for_update()` on the
-    invoice.
--   Enforce the one-successful-payment-per-invoice rule at the database
-    level if confirmed.
--   Do not rely only on a pre-check in Python; concurrent requests can
-    pass the same check.
--   A duplicate or already-paid invoice attempt must return a safe
-    domain-level error.
-
-### 5.7 Multiple methods and dates
-
--   Store the method and payment date on each payment record.
--   Support different methods across different payments.
--   Support payment dates supplied by the Staff workflow.
--   The source does not define whether backdating is restricted, whether
-    future dates are permitted, or which timezone applies to date/time
-    values. Keep those as open decisions.
-
-### 5.8 Overdue definition
-
-An invoice is overdue exactly when:
-
-`today > invoice.due_date AND invoice.status != Paid`
-
-Consequences:
-
--   An invoice due today is not overdue.
--   A Paid invoice is never overdue.
--   A Confirmed invoice past its due date is overdue.
--   A Cancelled invoice is not Paid; the literal requirement would
-    satisfy the status condition, but whether cancelled invoices should
-    appear in overdue follow-up is not explicitly addressed. Exclude
-    cancelled invoices from operational follow-up only after confirming
-    this interpretation; otherwise preserve the literal rule and flag
-    the ambiguity.
--   Overdue is a derived condition, not necessarily a persisted invoice
-    status.
--   Use the agreed business timezone/date basis consistently.
--   Display the due date and, if calculated, the number of days overdue.
-
-### 5.9 Dunning
-
-The system automatically sends reminder emails for overdue invoices.
-
-The current working assumption from Open Item C is:
-
-  Reminder              Timing
-  --------------------- --------------------------------------
-  First reminder        1 day past due
-  Second reminder       7 days past due
-  Third reminder        14 days past due
-  After final failure   Automatically pause the subscription
-
-This cadence and final action are not confirmed product decisions. Do
-not hard-code UI copy that presents them as final until approved.
-
-Dunning must:
-
--   Run through the scheduler/cron mechanism, not an in-process
-    scheduler.
--   Select overdue, unpaid invoices eligible for the next reminder.
--   Avoid sending the same reminder more than once when a job is re-run.
--   Record which reminder stage was sent and when.
--   Avoid sending reminders for invoices that have become Paid.
--   Log and safely handle email failures.
--   Avoid rolling back payment or invoice transactions because an email
-    failed.
--   Respect the notification retry policy.
--   Keep the subscription pause action behind the confirmed grace-period
-    policy and the subscription lifecycle service.
+Confirmed invoices are treated as immutable under FR-5.10's working
+policy. M5 must preserve the tax details used by a confirmed invoice
+rather than recomputing historical totals from a subsequently edited Tax
+record. Do not retroactively recalculate confirmed invoices.
 
 ------------------------------------------------------------------------
 
-## 6. Payment and invoice integration
+## 6. Payment-term configuration behavior
 
-### 6.1 Ownership boundary
+### 6.1 Payment-term list and form
 
--   M7 owns Payment and payment-provider orchestration.
--   M5 owns Invoice, invoice totals, invoice due dates, and invoice
-    status transitions.
--   M7 must not duplicate invoice fields or independently implement the
-    invoice state machine.
--   M7 calls the M5 service to transition an invoice to Paid after
-    confirmed success.
--   M8 may consume payment and overdue data for dashboard/reporting.
--   M10 owns the shared scheduler and notification infrastructure; M7
-    supplies payment/dunning task entry points and relevant email
-    context.
+Audience: Admin only.
 
-### 6.2 Record-payment service flow
+Required fields: - Name. - Due-date rule / number of days.
 
-A recommended high-level flow:
+Examples from the source: - Immediate. - Net 15. - Net 30.
 
-1.  Resolve the authenticated Admin/Staff actor.
-2.  Load and lock the target invoice.
-3.  Verify the invoice is Confirmed and not already Paid or Cancelled.
-4.  Read the authoritative invoice total.
-5.  Validate the submitted amount equals that total.
-6.  Validate method and payment date.
-7.  Check idempotency/duplicate submission.
-8.  Invoke the configured `PaymentProvider`.
-9.  Normalize the provider result.
-10. If success, persist the payment and invoke the M5 Confirmed → Paid
-    transition within the coordinated transaction.
-11. If failure or delay, persist/return the non-success outcome without
-    changing invoice status.
-12. Return a safe result to the view.
+Admin can view, create, and edit payment terms. The source does not
+define additional status or lifecycle fields.
 
-The exact ordering of external provider calls and database commits
-requires care. A database transaction cannot roll back an external
-payment side effect. The mock provider should make failure paths
-testable, and the implementation should document how an external success
-followed by a database failure is reconciled if a real provider is ever
-introduced. Do not pretend this MVP solves real-gateway reconciliation.
+### 6.2 Validation
 
-### 6.3 Service and selector boundaries
+-   Name is required.
+-   Due-date rule is required.
+-   If represented as a day count, validate the approved integer range.
+-   Reject malformed or negative values unless a separately approved
+    rule permits them.
+-   Do not infer calendar-day/business-day behavior from the label.
 
-Suggested `apps/payments/` structure:
+Allowed values, uniqueness, and date semantics remain open.
 
-``` text
-apps/payments/
-├── models.py
-├── services.py          # record/process payment, idempotency, outcomes
-├── selectors.py         # payment list/detail and invoice follow-up queries
-├── providers.py         # PaymentProvider contract and mock implementation
-├── forms.py
-├── views.py
-├── permissions.py
-├── urls.py
-├── tasks.py             # dunning scheduled entry point
-├── tests/
-└── migrations/
-```
+### 6.3 Subscription selection
 
-Keep views thin. Business logic belongs in services; complex reads
-belong in selectors. The provider boundary belongs in the payments app
-and should remain small.
+-   Subscription stores a PaymentTerm reference under FR-4.3.
+-   Subscription workflow selects from Admin-managed records.
+-   M5 uses the selected persisted term to derive invoice due dates.
+-   Do not hard-code Immediate / Net 15 / Net 30 in frontend code.
+-   Validate the selected reference server-side.
+
+Staff's ability to select/change a term during subscription creation is
+not fully explicit. Follow M4 permissions and record the decision.
+
+### 6.4 Invoice due-date integration
+
+FR-5.7 assigns due-date derivation to the Subscription's payment terms.
+M5 owns the calculation; M9 only supplies the configuration.
+
+Do not silently assume: - The base date is invoice creation,
+confirmation, or another event. - Immediate always means a particular
+timestamp. - Net N means calendar days rather than business days. -
+Weekends/holidays are adjusted. - Editing a Subscription's payment term
+rewrites existing invoice due dates.
+
+Existing confirmed invoices should retain their due dates. Changes to
+terms should apply to future invoices unless an approved policy says
+otherwise.
 
 ------------------------------------------------------------------------
 
 ## 7. User experience
 
-### 7.1 Audience and navigation
+### Taxes
 
-Audience: Admin and Staff.
+Audience: Admin only. Show Tax name and rate, with create/edit actions.
+Product create/edit should reference configured taxes.
 
-The internal application navigation includes Payments. Customers do not
-receive payment-recording controls.
+### Payment terms
 
-### 7.2 Payment list
+Audience: Admin only. Show name and due-date rule / number of days, with
+create/edit actions. Subscription workflows use the configured list.
 
-Recommended columns:
+### Validation/error states
 
--   Payment reference
--   Invoice number
--   Customer
--   Method
--   Amount
--   Date
--   Status, if the payment provider returns one
+  -----------------------------------------------------------------------
+  Situation                           Expected behavior
+  ----------------------------------- -----------------------------------
+  Missing tax name                    Field-specific validation error.
 
-Expected behavior:
+  Missing/malformed tax rate          Reject and explain expected numeric
+                                      input.
 
--   Search by payment reference, invoice number, or customer-identifying
-    fields where permitted.
--   Filter by method, date, and status where useful.
--   Paginate the list.
--   Open a payment detail view from a row.
--   Show empty, loading, and error states.
--   Do not expose another customer's payment information to customer
-    users.
+  Invalid Product tax reference       Prevent save and request a valid
+                                      Tax.
 
-### 7.3 Record-payment flow
+  Missing payment-term name           Field-specific validation error.
 
-Fields:
+  Invalid due-date rule               Reject using the confirmed accepted
+                                      representation.
 
--   Invoice
--   Payment method
--   Amount
--   Payment date
--   Note
+  Invalid Subscription term reference Prevent save and request a valid
+                                      term.
 
-Behavior:
+  Non-Admin management request        Server-side access denied.
 
--   Invoice selection should show enough context to identify the invoice
-    and customer.
--   The amount may be prefilled from the selected invoice's
-    server-provided total.
--   The payment is linked to exactly one invoice.
--   The amount must equal the invoice total.
--   Partial payments are not allowed.
--   A successful payment moves the invoice to Paid.
--   Prevent duplicate payment submission.
--   Show a clear validation error if the amount does not equal the
-    invoice total.
--   Disable repeated submission while a request is processing.
--   Show a clear success, failure, or pending result.
--   Consequential payment actions should clearly identify the target
-    invoice and amount.
+  Referenced Tax/PaymentTerm is being Do not silently invalidate existing
+  deleted                             records; follow approved lifecycle
+                                      policy.
 
-### 7.4 Mock gateway presentation
-
--   Clearly label mock/simulated outcomes as test-mode behavior.
--   Never make a mock payment look like a real external payment.
--   Make success, failure, and delay behavior available in
-    development/test environments.
--   Do not expose test outcome controls to production users unless
-    explicitly required and protected.
-
-### 7.5 Invoice list and overdue follow-up
-
-Staff must be able to view Paid vs. outstanding invoices at any time.
-
-The invoice list/follow-up view should expose:
-
--   Invoice number
--   Customer
--   Invoice date
--   Due date
--   Total amount
--   Invoice status
--   Overdue indicator
--   Days overdue, if calculated
-
-Overdue invoices must be listed for follow-up. Do not label an invoice
-due today as overdue.
-
-### 7.6 Customer portal
-
--   Customers may view payment information associated with their own
-    invoices if exposed.
--   Customers cannot record payments through the portal under the
-    current permission matrix.
--   Do not add a Pay Now, checkout, or online-payment action to the MVP.
+  Network/server error                Preserve form data where possible
+                                      and provide safe retry.
+  -----------------------------------------------------------------------
 
 ------------------------------------------------------------------------
 
-## 8. Notifications and scheduled jobs
+## 8. Data integrity, security, and performance
 
-### 8.1 Dunning task
-
-Provide a task entry point that can be invoked by the project's Vercel
-Cron/protected endpoint arrangement.
-
-The task should:
-
-1.  Select a bounded batch of invoices that are overdue and eligible for
-    a reminder.
-2.  Determine the next reminder stage from persisted reminder
-    history/state.
-3.  Skip invoices already Paid.
-4.  Skip invoices not yet due for the next reminder.
-5.  Send the reminder through the notification service.
-6.  Record successful dispatch so reruns do not duplicate the same
-    reminder.
-7.  Record/log failures and allow safe retry according to the
-    notification policy.
-8.  Continue processing other invoices if one email fails.
-
-The task must be idempotent and resumable. Do not use Celery workers,
-APScheduler, or in-process background workers on Vercel.
-
-### 8.2 Reminder tracking
-
-A proposed reminder log may contain:
-
--   Invoice
--   Reminder stage/sequence
--   Scheduled/eligible date
--   Sent timestamp
--   Delivery outcome
--   Failure reason safe for internal logs
-
-A unique constraint such as `(invoice, reminder_stage)` can prevent
-duplicate stage dispatches, subject to the approved retry design. If
-failed attempts must be retried, distinguish an attempted dispatch from
-a successfully sent reminder so the unique constraint does not
-permanently block retries.
-
-### 8.3 Email failure behavior
-
--   Email failures must not roll back a payment or invoice state
-    transition.
--   Log failures with invoice/customer identifiers as appropriate,
-    without secrets.
--   Mark the reminder for retry or leave it eligible for a safe retry.
--   Continue processing other invoices.
--   Do not send duplicate reminders after a successful send when the
-    cron endpoint is invoked again.
+-   PostgreSQL is the source of truth.
+-   Use Decimal for rates and all monetary calculations.
+-   Enforce Admin-only management on the server.
+-   Validate foreign-key references.
+-   Use constraints only for confirmed business rules.
+-   Do not delete or mutate referenced configuration in a way that
+    corrupts Product, Subscription, or Invoice history.
+-   Ship migrations; never edit applied migrations.
+-   Audit Admin configuration changes consistent with NFR-5.
+-   Use ORM/parameterized queries; no raw SQL string formatting.
+-   Avoid N+1 queries.
+-   Do not add a dependency for basic configuration CRUD.
 
 ------------------------------------------------------------------------
 
-## 9. Validation and error handling
+## 9. Testing strategy
 
-### 9.1 User/input errors
+### Tax tests
 
-Return friendly, field-specific errors for:
+-   Valid Tax creation succeeds.
+-   Missing name, missing rate, and malformed rate are rejected.
+-   Decimal precision is preserved.
+-   Approved range and uniqueness rules are enforced once decided.
+-   Product references one valid Tax.
+-   Missing/invalid Tax reference is rejected.
+-   Admin can manage; Staff and Customer cannot.
 
--   Missing invoice.
--   Invoice not eligible for payment.
--   Invoice already Paid.
--   Invoice Cancelled.
--   Amount lower than invoice total.
--   Amount higher than invoice total.
--   Invalid payment method.
--   Invalid payment date.
--   Duplicate/idempotent request.
--   Permission denied.
+### Tax integration tests
 
-### 9.2 Provider errors
+-   M5 reads the Product's Tax during invoice generation.
+-   Each invoice line carries the Product's tax rate.
+-   Tax is not derived from customer location/region.
+-   Decimal and shared rounding helper are used.
+-   Confirmed invoice tax details remain stable after Tax edits.
 
--   Normalize provider success, failure, and delay into a small internal
-    result.
--   Catch only expected provider exceptions.
--   Log unexpected provider failures with context and re-raise/handle
-    safely.
--   Never mark an invoice Paid on timeout, unknown outcome, or failure.
--   Do not expose provider stack traces or secrets to the user.
--   Keep the mock provider deterministic and configurable in tests.
+### Payment-term tests
 
-### 9.3 Domain exceptions
+-   Admin can create/edit a PaymentTerm.
+-   Missing name or invalid due-date rule is rejected.
+-   Subscription stores a valid PaymentTerm.
+-   Invalid reference is rejected.
+-   Staff/Customer cannot manage terms.
+-   Immediate / Net N semantics are tested after product confirms them.
 
-Suggested domain exceptions:
+### Due-date integration tests
 
--   `InvoiceNotPayable`
--   `PaymentAmountMismatch`
--   `DuplicatePayment`
--   `PaymentProviderError`
--   `PaymentPending`
+-   M5 derives due date from Subscription's selected term.
+-   Approved base-date and calendar semantics are tested.
+-   Editing a term does not silently rewrite confirmed invoice due
+    dates.
+-   Agreed timezone/date basis is applied consistently.
 
-Use existing project conventions if equivalent exceptions already exist.
-Do not create redundant exception hierarchies.
+### General checks
 
-------------------------------------------------------------------------
-
-## 10. Data integrity, transactions, and security
-
--   PostgreSQL is the source of truth for payment records, idempotency,
-    and reminder history.
--   Use `DecimalField`; never use `float` for money.
--   Compare payment amount with the stored invoice total.
--   Wrap multi-step writes in `transaction.atomic()`.
--   Use `select_for_update()` when processing payment against an
-    invoice.
--   Enforce idempotency with a database uniqueness constraint where
-    applicable.
--   If the business confirms at most one successful payment per invoice,
-    enforce it with a conditional unique constraint or equivalent
-    database guarantee.
--   Do not directly assign invoice status; call the M5 transition
-    service.
--   Do not call external email/payment services from model `save()`
-    methods.
--   Keep external side effects outside model methods and define failure
-    handling explicitly.
--   Enforce Admin/Staff permissions server-side.
--   Scope customer-facing reads to the current customer's invoices.
--   Do not trust client-sent totals, statuses, provider outcomes, or
-    customer identifiers.
--   Do not log credentials, provider secrets, full payment details, or
-    sensitive personal data.
--   Use parameterized ORM operations; no raw SQL string formatting.
-
-------------------------------------------------------------------------
-
-## 11. Performance and deployment constraints
-
--   Use PostgreSQL indexes for common payment and invoice filters, such
-    as invoice, payment date, status, method, due date, and customer
-    where justified by query patterns.
--   Avoid N+1 queries using `select_related` and `prefetch_related`.
--   Paginate payment and overdue-invoice lists.
--   Batch dunning work to fit Vercel execution limits.
--   Make dunning jobs resumable and safe to re-run.
--   Protect scheduler/cron endpoints with the configured cron secret.
--   Do not rely on in-memory globals, local files, or in-process
-    schedulers.
--   Do not introduce a message queue or background worker for this
-    module.
--   Do not add dependencies unless necessary; use Django and the
-    standard library where practical.
--   Confirm any provider SDK or dependency against Vercel bundle/runtime
-    constraints before adoption. The MVP mock provider should not
-    require a gateway SDK.
-
-------------------------------------------------------------------------
-
-## 12. Testing strategy
-
-### 12.1 Payment model and validation tests
-
--   Payment requires exactly one invoice.
--   Payment amount is stored as Decimal.
--   Payment method and date are required.
--   Note is optional.
--   Amount equal to invoice total is accepted.
--   Amount below invoice total is rejected.
--   Amount above invoice total is rejected.
--   Payment cannot be recorded for Draft, Paid, or Cancelled invoices
-    under the working eligibility rule.
-
-### 12.2 Provider tests
-
--   Mock provider success returns a normalized success result.
--   Mock provider failure returns a normalized failure result.
--   Mock provider delay returns a non-success pending/delayed result.
--   Failure and delay never mark the invoice Paid.
--   Mock outcomes are visibly distinguishable from real provider
-    transactions.
-
-### 12.3 Payment service tests
-
--   Successful payment creates a successful Payment and transitions
-    invoice to Paid through M5.
--   Failed payment does not transition invoice to Paid.
--   Delayed payment does not transition invoice to Paid.
--   Duplicate idempotency key does not create a second payment.
--   Repeated request returns the original result where idempotency
-    semantics require it.
--   Concurrent payment attempts cannot create duplicate successful
-    payments.
--   A Paid invoice cannot be paid again.
--   Payment persistence and invoice transition remain consistent on
-    database errors.
-
-### 12.4 Permissions and data isolation tests
-
--   Admin can record and view payments.
--   Staff can record and view payments.
--   Customer cannot record payments.
--   Customer cannot view another customer's payment or invoice.
--   Unauthorized direct requests are rejected even if the UI control is
-    hidden.
-
-### 12.5 Overdue and dunning tests
-
--   Due today is not overdue.
--   Due date before today and status not Paid is overdue.
--   Paid invoice is not overdue.
--   The treatment of Cancelled invoices follows the confirmed policy.
--   Reminder stages are selected at the configured timing.
--   A rerun does not send the same successful reminder twice.
--   Paid invoices are skipped by dunning.
--   Email failure does not abort processing of other invoices.
--   Failed email dispatch can be retried safely.
--   Final subscription action is applied only after Open Item C is
-    confirmed.
-
-------------------------------------------------------------------------
-
-## 13. Implementation sequence
-
-1.  Inspect the existing repository, especially M1 authentication, M5
-    invoices, M10 notifications/scheduler, and current model/service
-    conventions.
-2.  Confirm the payment-method list, invoice payment eligibility,
-    successful-payment cardinality, and payment-date policy.
-3.  Define the minimal `PaymentProvider` contract and normalized result
-    type.
-4.  Implement the mock provider with deterministic success, failure, and
-    delayed outcomes.
-5.  Implement the Payment model and migrations.
-6.  Add idempotency and database constraints.
-7.  Implement payment validation and domain exceptions.
-8.  Implement the payment service using atomic transactions and invoice
-    row locking.
-9.  Integrate successful payment with the M5 invoice transition service.
-10. Implement payment selectors and Admin/Staff list/detail/record
-    views.
-11. Add paid/outstanding/overdue invoice visibility.
-12. Implement reminder tracking and the dunning task entry point.
-13. Integrate reminder email dispatch with the shared notification
-    service.
-14. Add protected Vercel Cron invocation and batching/resume behavior.
-15. Add unit, integration, permission, concurrency, and scheduler tests.
-16. Run lint, formatting, migration checks, tests, and dependency audit.
-17. Record all unresolved decisions and obtain product approval before
-    treating working assumptions as final.
-
-------------------------------------------------------------------------
-
-## 14. Open decisions and assumptions
-
-The source documents leave several M7 policies open. Keep these visible
-and do not silently turn assumptions into requirements.
-
-  ----------------------------------------------------------------------------
-  \#                Topic               Source position /   Decision needed
-                                        working assumption  
-  ----------------- ------------------- ------------------- ------------------
-  1                 Payment methods     A method field and  Which methods
-                                        multiple methods    should be
-                                        are required; no    selectable in the
-                                        method list is      MVP?
-                                        supplied.           
-
-  2                 Payment statuses    UI says show status Confirm whether to
-                                        if the provider     persist Pending,
-                                        returns one;        Succeeded, and
-                                        requirements do not Failed, and
-                                        define payment      whether failed
-                                        states.             attempts are
-                                                            Payment records.
-
-  3                 Invoice eligibility Invoice workflow    Confirm that Draft
-                                        implies Confirmed   invoices cannot
-                                        invoices are        receive payment.
-                                        payable.            
-
-  4                 Payment cardinality Partial payments    Can an invoice
-                                        are prohibited;     have multiple
-                                        multiple payment    failed attempts
-                                        dates/methods are   but only one
-                                        supported.          successful
-                                                            payment?
-
-  5                 Duplicate           FR-7.9 suggests     Choose
-                    prevention          idempotency key or  idempotency-key
-                                        duplicate check.    contract and
-                                                            define behavior
-                                                            when the same key
-                                                            is reused with
-                                                            different data.
-
-  6                 Payment date        Staff supplies a    Can dates be
-                                        date.               backdated or
-                                                            future-dated? Is
-                                                            it a date or
-                                                            timestamp, and
-                                                            what timezone
-                                                            applies?
-
-  7                 Payment reference   UI recommends a     Define format and
-                                        payment reference.  sequential/UUID
-                                                            strategy.
-
-  8                 Delayed mock result Mock must simulate  Does delay mean
-                                        delay.              pending result,
-                                                            delayed
-                                                            synchronous
-                                                            response, or later
-                                                            status update?
-
-  9                 External            No real gateway is  Define
-                    success/database    in scope.           reconciliation
-                    failure                                 strategy before
-                                                            any real provider
-                                                            is integrated.
-
-  10                Overdue cancelled   Literal rule says   Should Cancelled
-                    invoices            status not Paid;    invoices be
-                                        cancelled is not    excluded from
-                                        Paid.               overdue follow-up?
-
-  11                Dunning cadence     Open Item C working Confirm reminder
-                                        assumption: 1, 7,   timing and whether
-                                        14 days past due.   reminders are
-                                                            calendar-day
-                                                            based.
-
-  12                Dunning final       Open Item C working Confirm pause
-                    action              assumption:         behavior, affected
-                                        auto-pause          subscription(s),
-                                        subscription after  and whether manual
-                                        final               review is
-                                        reminder/failure.   required.
-
-  13                Dunning retries     Email failures must Define retry
-                                        be retried safely;  count/backoff and
-                                        exact retry policy  when a reminder is
-                                        is not stated.      considered sent.
-
-  14                Reminder            Email reminders are Confirm
-                    recipient/content   required; exact     recipient(s),
-                                        recipient/content   template fields,
-                                        is not defined      sender, and
-                                        here.               staff-copy
-                                                            behavior.
-
-  15                Currency            Single currency is  Confirm currency
-                                        a working           and formatting
-                                        assumption;         source.
-                                        currency is not     
-                                        specified in M7.    
-
-  16                Manual vs provider  Staff records       Clarify which
-                    payment             payments and a mock methods are
-                                        gateway is          manually confirmed
-                                        required.           versus sent
-                                                            through the
-                                                            provider
-                                                            abstraction.
-  ----------------------------------------------------------------------------
-
-### 14.1 Explicit non-assumptions
-
-Do not assume:
-
--   That partial payments are allowed.
--   That a payment can be split across invoices.
--   That an invoice can be paid more than once successfully.
--   That any browser-submitted total is authoritative.
--   That a failed or delayed provider response means payment succeeded.
--   That a customer can record or initiate online payment.
--   That a real payment gateway is part of this MVP.
--   That a specific set of payment methods is approved.
--   That cancelled invoices should automatically be treated as overdue
-    follow-up items without resolving the ambiguity.
--   That the 1/7/14-day dunning cadence and automatic pause are final
-    policy.
--   That a delayed mock response requires production-style asynchronous
-    callback infrastructure.
--   That an email failure should roll back a successful payment.
--   That an external payment side effect can be rolled back by a
-    database transaction.
-
-------------------------------------------------------------------------
-
-## 15. Definition of Done
-
-M7 is ready for acceptance when:
-
--   [ ] FR-7.1 through FR-7.8 are implemented and verified.
--   [ ] FR-7.9 duplicate prevention is implemented or explicitly
-    deferred with approval.
--   [ ] Admin and Staff can record payments with invoice, method,
-    amount, date, and note.
--   [ ] Every payment is linked to exactly one invoice.
--   [ ] Multiple payment methods and dates are supported according to
-    the approved method policy.
--   [ ] Partial and overpayments are rejected; amount must exactly equal
-    the stored invoice total.
--   [ ] Monetary handling uses Decimal and never float.
--   [ ] Successful payment moves the invoice to Paid through the M5
-    transition service.
--   [ ] Failed and delayed payments do not mark invoices Paid.
--   [ ] The mock provider simulates success, failure, and delay.
--   [ ] Mock outcomes are clearly labelled as test-mode behavior.
--   [ ] Duplicate submissions are prevented with database-backed
-    idempotency/duplicate protection.
--   [ ] Concurrent payment attempts cannot create duplicate successful
-    payment records.
--   [ ] Staff can view paid and outstanding invoices.
--   [ ] Overdue calculation follows
-    `today > due_date AND status != Paid`, subject to the
-    cancelled-invoice policy decision.
--   [ ] Overdue invoices are listed for follow-up.
--   [ ] Dunning reminders are scheduled, tracked, and safe to re-run.
--   [ ] Reminder email failures do not roll back payments or stop
-    unrelated reminders.
--   [ ] The dunning cadence and final subscription action are confirmed
-    or clearly marked as deferred.
--   [ ] Payment and invoice records are protected by server-side
-    permissions and customer data isolation.
--   [ ] No provider secrets or sensitive payment data are logged or
-    exposed.
--   [ ] Tests cover validation, provider outcomes, invoice transitions,
-    duplicate/concurrent submissions, permissions, overdue logic, and
-    dunning.
--   [ ] Migrations are present and consistent.
--   [ ] `ruff check .`, `ruff format .`,
+-   Migrations are consistent.
+-   `ruff check .`, `ruff format .`,
     `python manage.py makemigrations --check --dry-run`, and `pytest`
-    pass, or any unavailable check is explicitly recorded with its
-    reason.
--   [ ] Dependency audit is run before release.
--   [ ] No unapproved dependencies or out-of-scope features are
+    pass, or are explicitly reported as not run.
+-   Run dependency audit before release.
+
+------------------------------------------------------------------------
+
+## 10. Dependencies and implementation sequence
+
+### Upstream
+
+-   M1: authenticated Admin identity and server-side RBAC.
+-   M2: Product model and Product-to-Tax relationship.
+-   M4: Subscription model and payment-term selection.
+-   M5: invoice tax calculation and due-date calculation.
+
+### Downstream
+
+-   M2 consumes Tax records.
+-   M4 consumes PaymentTerm records.
+-   M5 consumes Product tax and Subscription payment terms.
+-   M8 may consume persisted invoice financial data as defined by
+    reporting requirements.
+
+### Sequence
+
+1.  Inspect existing `apps/catalog/` models, forms, services, selectors,
+    permissions, and migrations.
+2.  Confirm whether Tax/PaymentTerm already exist; avoid duplicates.
+3.  Confirm tax-rate representation, range, and uniqueness.
+4.  Confirm Immediate / Net N semantics.
+5.  Implement or complete Tax configuration.
+6.  Implement or complete PaymentTerm configuration.
+7.  Enforce Admin-only create/edit.
+8.  Integrate Product-to-Tax selection with M2.
+9.  Integrate Subscription-to-PaymentTerm selection with M4.
+10. Verify M5 consumes configuration rather than duplicating it.
+11. Add audit, validation, and integration tests.
+12. Run lint, formatting, migration checks, tests, and dependency audit.
+13. Obtain approval for unresolved policies.
+
+------------------------------------------------------------------------
+
+## 11. Open decisions and assumptions
+
+  -----------------------------------------------------------------------------------------
+  \#                Topic                     Source position    Decision needed
+  ----------------- ------------------------- ------------------ --------------------------
+  1                 Rate representation       Tax has name and   Store 18 for 18%, or 0.18?
+                                              rate.              Choose one canonical
+                                                                 representation.
+
+  2                 Rate range                Not specified.     Are zero rates allowed?
+                                                                 What is the maximum?
+
+  3                 Tax name uniqueness       Not specified.     Must names be
+                                                                 unique/case-insensitive?
+
+  4                 Tax lifecycle             Create/manage      How to retire referenced
+                                              required;          taxes?
+                                              deletion/archive   
+                                              unspecified.       
+
+  5                 Tax edits                 Historical         Do edits affect future
+                                              behavior           calculations only? What
+                                              unspecified.       about drafts?
+
+  6                 Day basis                 Due-date rule /    Calendar days or business
+                                              number of days.    days?
+
+  7                 Immediate                 Example only.      Which date/time is the due
+                                                                 date?
+
+  8                 Net N                     Examples Net       Which event is the base
+                                              15/Net 30.         date for adding N days?
+
+  9                 Date adjustments          Not specified.     Weekends, holidays,
+                                                                 end-of-month?
+
+  10                Term edits                Not specified.     Future invoices only, or
+                                                                 drafts too?
+
+  11                Staff selection           Staff manages      Can Staff select an
+                                              subscriptions but  existing term during
+                                              cannot manage      subscription creation?
+                                              terms.             
+
+  12                Rounding                  Open Item J        Confirm per-line, 2
+                                              working            decimals, half-up.
+                                              assumption.        
+
+  13                Tax-inclusive/exclusive   Open Item B        Confirm.
+                                              working            
+                                              assumption:        
+                                              exclusive.         
+  -----------------------------------------------------------------------------------------
+
+### Assumptions to avoid
+
+-   Do not assume a rate representation, maximum rate, or uniqueness
+    policy.
+-   Do not add geography/customer tax rules or multiple taxes per
+    Product.
+-   Do not assume calendar/business days or a due-date base event.
+-   Do not retroactively recalculate confirmed invoices.
+-   Do not assume deletion of referenced configuration is safe.
+-   Do not grant Staff configuration-management permissions.
+
+------------------------------------------------------------------------
+
+## 12. Definition of Done
+
+-   [ ] FR-9.1 through FR-9.3 implemented.
+-   [ ] Admin manages Tax records with name and rate.
+-   [ ] Each Product references one Tax.
+-   [ ] No region/customer-location tax logic is added.
+-   [ ] Admin manages PaymentTerm records.
+-   [ ] Payment terms expose name and due-date rule / number of days.
+-   [ ] Subscription references a configured PaymentTerm.
+-   [ ] M5 derives invoice due dates from the selected term.
+-   [ ] M5 continues to calculate invoice-line tax from Product tax.
+-   [ ] Decimal is used for financial calculations.
+-   [ ] Management is Admin-only and server-enforced.
+-   [ ] Confirmed invoice history is not silently recalculated.
+-   [ ] Validation, permission, and integration tests exist.
+-   [ ] Migrations and project checks pass, or unrun checks are
+    documented.
+-   [ ] No unapproved dependencies or out-of-scope features.
+-   [ ] Open decisions are approved or explicitly deferred.
+
+------------------------------------------------------------------------
+
+## 13. Developer self-review
+
+  -----------------------------------------------------------------------
+  Area                    Review question         Status
+  ----------------------- ----------------------- -----------------------
+  Ownership               No duplication of       Verify during
+                          M2/M4/M5                implementation
+                          responsibilities?       
+
+  Integrity               Each Product has one    Verify
+                          valid Tax; each         
+                          Subscription has a      
+                          valid term?             
+
+  Tax behavior            Tax comes only from     Verify
+                          Product tax?            
+
+  Due dates               M5 calculates due dates Verify
+                          from the selected term? 
+
+  Money                   Decimal and shared      Verify
+                          rounding helper used?   
+
+  Permissions             Management is           Verify
+                          Admin-only server-side? 
+
+  History                 Confirmed invoice       Verify
+                          details remain          
+                          immutable?              
+
+  Dead code               No unused imports,      Verify
+                          stubs, debug prints, or 
+                          dead code?              
+
+  Dependencies            New packages justified, Verify
+                          pinned,                 
+                          Vercel-compatible?      
+
+  Tests                   Model, permission,      Verify
+                          integration, and date   
+                          tests present?          
+  -----------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+## 14. Source of truth
+
+Derived from: 1. `REQUIREMENTS.md`: FR-9.1--FR-9.3, FR-2.3, FR-4.3,
+FR-5.4, FR-5.7, BR-8, BR-13, Open Items B/G/J, and NFR-10. 2.
+`UI_UX.md`: Section 5.13 Taxes and Payment Terms, Product and
+Subscription forms. 3. `CODING_STANDARDS.md`: modular-monolith
+structure, PostgreSQL, Decimal, server-side RBAC, migrations,
+auditability, and Vercel constraints.
+
+Requirements define what to build; coding standards define
+implementation constraints; UI/UX defines the interface. Open decisions
+are recorded rather than silently resolved. This is an implementation
+baseline, not a claim that M9 is implemented.
+
+---
+
+# M10. Notifications and Scheduler
+
+**Document type:** Feature specification and implementation baseline\
+**Product:** Brightloop Subscription Management System\
+**Module:** M10 --- Notifications and Scheduler\
+**Requirement coverage:** FR-10.1 through FR-10.4\
+**Status:** Derived implementation baseline; unresolved policies remain
+open\
+**Sources:** `REQUIREMENTS.md`, `UI_UX.md`, `CODING_STANDARDS.md`
+
+------------------------------------------------------------------------
+
+## 1. Purpose and scope
+
+M10 provides shared notification delivery and scheduled execution for
+Brightloop.
+
+It has two responsibilities:
+
+1.  **Scheduler:** run billing, renewals, plan auto-close, quotation
+    expiry, and dunning reminders.
+2.  **Notifications:** send and track email events for password reset,
+    invoice delivery, payment failure, overdue reminders, and Staff
+    alerts.
+
+M10 owns shared infrastructure and orchestration. Domain modules retain
+their business rules and task entry points. M10 must call those entry
+points rather than reimplement billing, subscription, invoice, payment,
+or quotation logic.
+
+The deployment target is Django + PostgreSQL + Vercel. Use protected
+Vercel Cron endpoints and bounded, resumable tasks. Do not use
+in-process schedulers or long-running workers.
+
+### 1.1 Goals
+
+-   Run all scheduled tasks required by FR-10.1.
+-   Make scheduled jobs idempotent under reruns and overlapping
+    invocations.
+-   Send all required email categories.
+-   Log email delivery failures and support retry behavior.
+-   Keep email provider and scheduler behind small replaceable
+    boundaries.
+-   Operate within Vercel serverless execution limits.
+
+### 1.2 In scope
+
+-   Protected cron endpoints and scheduler integration.
+-   Task entry points for billing, renewals, plan auto-close, quotation
+    expiry, and dunning.
+-   Idempotency, bounded batches, and resumability.
+-   Shared email-provider boundary.
+-   Emails for password reset, invoice delivery, payment failure,
+    overdue reminders, and Staff alerts.
+-   Notification delivery logging.
+-   Retry handling for failed email delivery (Should priority).
+-   Tests for scheduling, notifications, security, and failure paths.
+
+### 1.3 Out of scope
+
+Do not add without approval: - Celery workers, Redis queues, message
+brokers, event buses, APScheduler, or in-process schedulers. - A general
+workflow engine. - SMS, WhatsApp, push, or in-app notification center. -
+Marketing campaigns or newsletters. - New payment checkout
+functionality. - New renewal retry/grace-period or dunning policies. - A
+scheduler-management UI, cron editor, or job calendar unless separately
+required. - Automatic retries of non-idempotent operations without a
+safe retry design.
+
+------------------------------------------------------------------------
+
+## 2. Requirement traceability
+
+  -----------------------------------------------------------------------------
+  Requirement           Priority      Source            M10 behavior
+                                      requirement       
+  ----------------- ----------------- ----------------- -----------------------
+  FR-10.1                 Must        Scheduler runs    Configure scheduled
+                                      billing,          invocations for each
+                                      renewals, plan    operation and call the
+                                      auto-close, quote owning app's task entry
+                                      expiry, and       point.
+                                      dunning.          
+
+  FR-10.2                 Must        Scheduled jobs    Enforce idempotency at
+                                      are idempotent    domain/database level
+                                      and safe to       and handle
+                                      re-run.           duplicate/overlapping
+                                                        cron invocations.
+
+  FR-10.3                 Must        Emails for        Shared email dispatch
+                                      password reset,   boundary and
+                                      invoice delivery, event-specific
+                                      payment failure,  templates/context.
+                                      overdue           
+                                      reminders, and    
+                                      Staff alerts.     
+
+  FR-10.4                Should       Email failures    Persist/log failures
+                                      are logged and    and support retry under
+                                      retried.          an approved policy.
+  -----------------------------------------------------------------------------
+
+Related requirements: - FR-1.4: password reset email contains a
+single-use, time-limited reset link. - FR-3.6: scheduler closes plans
+configured to auto-close after their end date. - FR-4.8: automatic
+renewal failure sets `payment_failed`, emails customer, notifies Staff,
+and applies grace/retry policy. - FR-4.11: expired quotation cannot be
+accepted. - FR-5.2: billing run can be scheduler-triggered or manually
+triggered by Admin/Staff. - FR-5.9: billing-run results record
+created/skipped/failed; one subscription failure does not stop others. -
+FR-7.8: overdue invoices receive automatic reminder emails. - NFR-2:
+hundreds of subscriptions per billing run with batching/background
+processing. - NFR-5: status changes, billing actions, payments, and
+Admin changes are logged. - NFR-7: scheduled jobs recover and safely
+rerun. - NFR-9: email provider and scheduler are replaceable.
+
+Open Item C's working dunning cadence (1, 7, 14 days past due, then
+auto-pause) is not confirmed. Renewal retry count, intervals, grace
+period, and final lifecycle action are also open.
+
+------------------------------------------------------------------------
+
+## 3. Roles and access boundaries
+
+### System execution
+
+Scheduled tasks execute under a protected server-side context, not an
+arbitrary browser-supplied user.
+
+-   Cron endpoints require the configured secret.
+-   Reject missing/invalid authorization.
+-   Do not accept arbitrary task names or untrusted parameters that
+    permit privileged task dispatch.
+-   Each task validates its own inputs and calls the relevant domain
+    service.
+
+### Admin and Staff
+
+Admin/Staff can manually trigger billing as specified by FR-5.2 and the
+role-permission matrix. M10 does not grant users permission to edit cron
+schedules.
+
+Use existing billing-run results and notification/job logs for
+operational visibility. The source does not specify a
+scheduler-management screen.
+
+### Customer
+
+Customers cannot access scheduler endpoints or internal notification
+infrastructure. They receive relevant transactional emails and can
+access only their own portal records.
+
+------------------------------------------------------------------------
+
+## 4. Architecture and ownership
+
+### 4.1 M10 responsibilities
+
+M10 provides: - Email-provider selection and dispatch. - Notification
+rendering/template integration. - Delivery outcome logging. - Retry
+state/entry point where required. - Protected cron invocation. - Shared
+task execution conventions and bounded processing.
+
+M10 does not own business eligibility, billing calculations, renewal
+decisions, quotation state transitions, plan lifecycle, or overdue
+calculation.
+
+### 4.2 Domain task ownership
+
+  -----------------------------------------------------------------------
+  Scheduled operation /   Domain owner            M10 responsibility
+  email                                           
+  ----------------------- ----------------------- -----------------------
+  Billing run             M5 Billing              Schedule and invoke
+                                                  billing task.
+
+  Automatic renewals      M4 Subscriptions and    Schedule and invoke
+                          relevant payment flow   renewal task.
+
+  Plan auto-close         M3 Plans / subscription Schedule and invoke
+                          lifecycle service       auto-close task.
+
+  Quotation expiry        M4 Quotations /         Schedule and invoke
+                          Subscriptions           expiry task.
+
+  Dunning                 M7 Payments / overdue   Schedule and invoke
+                          workflow                dunning; provide email
+                                                  dispatch.
+
+  Password reset email    M1 Accounts             Deliver email; M1 owns
+                                                  token generation and
+                                                  validation.
+
+  Invoice delivery        M5 Billing              Deliver email; M5 owns
+                                                  invoice content and
+                                                  send eligibility.
+
+  Payment failure         M4/M7 renewal-payment   Deliver email; domain
+                          flow                    supplies event context.
+
+  Staff alerts            Originating domain      Deliver alert; domain
+                          module                  determines event and
+                                                  recipient context.
+  -----------------------------------------------------------------------
+
+### 4.3 Suggested structure
+
+Align with existing app layout; reuse existing modules if present.
+
+``` text
+apps/
+├── notifications/
+│   ├── models.py       # notification/delivery records, if persisted
+│   ├── services.py     # dispatch, template rendering, retry
+│   ├── providers.py    # small email-provider boundary
+│   ├── selectors.py    # delivery history / retry candidates
+│   ├── tasks.py        # retry task, if required
+│   ├── templates/
+│   └── tests/
+└── billing/
+    └── tasks.py        # domain-owned billing entry point
+```
+
+Cron routing/configuration belongs in the existing project wiring. Do
+not create a generic scheduler framework without a concrete need.
+
+------------------------------------------------------------------------
+
+## 5. Scheduler design
+
+### 5.1 Required scheduled operations
+
+FR-10.1 requires: 1. Billing runs. 2. Renewals. 3. Plan auto-close. 4.
+Quotation expiry. 5. Dunning reminders.
+
+Each operation needs a clear task entry point owned by its domain
+module. Exact cron frequencies and times are not specified; obtain
+approval rather than inventing a product schedule.
+
+### 5.2 Vercel execution model
+
+Coding standards require: - Vercel Cron calling protected endpoints. -
+Endpoints invoking `tasks.py` entry points. - No Celery workers,
+APScheduler, or in-process background workers. - No reliance on
+in-memory globals or local files for persistent state.
+
+Use environment configuration for cron secrets and deployment-specific
+settings.
+
+### 5.3 Protected endpoints
+
+-   Protect each scheduled endpoint with the configured secret
+    (e.g. `CRON_SECRET`).
+-   Reject missing or invalid secrets.
+-   Never expose secrets or stack traces in responses/logs.
+-   Do not allow arbitrary task dispatch from public query parameters.
+-   Keep endpoints thin: authenticate request, call a known task entry
+    point, return a safe result.
+-   Manual billing remains governed by Admin/Staff permissions,
+    separately from cron authentication.
+
+### 5.4 Idempotency and overlapping invocations
+
+FR-10.2 is Must priority. A job must be safe if: - Cron delivers the
+same invocation more than once. - A previous invocation times out after
+processing some records. - Two invocations overlap. - A task is retried
+after transient failure. - A record changes state between selection and
+processing.
+
+Implementation principles: - PostgreSQL is the source of truth. - Use
+database uniqueness constraints where appropriate. - Use
+`transaction.atomic()` for multi-step writes. - Use
+`select_for_update()` when concurrent operations can change the same
+domain record. - Re-check eligibility immediately before state
+transitions or notifications. - Make each record's operation
+independently safe to retry. - Do not rely on pre-checks alone to
+prevent duplicates. - Persist progress/outcomes where needed; do not
+rely on process memory.
+
+Examples: - Billing uses unique `(subscription, billing_period)` invoice
+constraint; duplicate means already billed and should be
+logged/skipped. - Quotation expiry must not repeat an invalid
+transition. - Plan auto-close must not repeat an invalid lifecycle
+transition. - Dunning must not send the same successful reminder stage
+twice. - Email retry must not resend a known successful delivery merely
+because cron ran again.
+
+### 5.5 Batching and resumability
+
+Vercel functions have execution time limits. Long jobs, especially
+billing runs, must be bounded and resumable.
+
+-   Process a limited batch per invocation.
+-   Persist sufficient progress/outcome state to continue safely.
+-   Continue through later invocations/cron triggers.
+-   Isolate failures per subscription/invoice/record.
+-   One failed record must not abort unrelated records.
+-   Billing records Created / Skipped / Failed outcomes under FR-5.9.
+-   Retry only operations designed to be idempotent.
+
+Batch size, execution budget, and continuation mechanism are
+deployment/implementation decisions. Measure them against actual Vercel
+limits.
+
+### 5.6 Task results and logs
+
+Operational logs should identify: - Task name and execution time. -
+Completion/failure outcome. - Processed count where relevant. - Failed
+records and safe reason. - Whether a retry is possible.
+
+The requirements do not mandate a `SchedulerRun` model or scheduler UI.
+Reuse `BillingRun` for billing. Add persisted job-run records only if
+needed for reliability/auditability, not speculatively.
+
+------------------------------------------------------------------------
+
+## 6. Notification and email design
+
+### 6.1 Required email events
+
+  -----------------------------------------------------------------------
+  Event                   Domain owner            Purpose
+  ----------------------- ----------------------- -----------------------
+  Password reset          M1 Accounts             Deliver the single-use,
+                                                  time-limited reset
+                                                  link.
+
+  Invoice delivery        M5 Billing              Deliver invoice when
+                                                  sent.
+
+  Payment failure         M4/M7 renewal-payment   Inform customer
+                          flow                    automatic renewal
+                                                  payment failed.
+
+  Overdue reminder        M7 Payments / dunning   Remind customer of
+                                                  overdue invoice using
+                                                  approved cadence.
+
+  Staff alert             Relevant domain app     Notify Staff of
+                                                  relevant operational
+                                                  event, including
+                                                  renewal failures.
+  -----------------------------------------------------------------------
+
+M10 supplies delivery infrastructure. The originating module supplies
+event, recipient, and domain-specific content.
+
+### 6.2 Email provider boundary
+
+NFR-9 requires the email provider to be replaceable. Keep the contract
+small and aligned with actual use.
+
+A conceptual dispatch input may include: - Recipient. - Subject. -
+Rendered text/HTML body or template plus context. - Stable
+event/notification identifier where duplicate handling requires it.
+
+Use existing repository conventions for the exact signature. Do not
+create a generic plugin framework or redundant provider abstractions.
+
+Provider credentials come from environment variables. Never hard-code or
+log them.
+
+### 6.3 Notification record
+
+`Notification` is listed as a core domain entity for email logs. A
+proposed record may include:
+
+  -----------------------------------------------------------------------
+  Field                               Purpose
+  ----------------------------------- -----------------------------------
+  `id`                                Stable identifier.
+
+  `notification_type`                 Password reset, invoice, payment
+                                      failure, dunning, Staff alert.
+
+  `recipient`                         Delivery destination; protect as
+                                      personal data.
+
+  `related_object` reference          Invoice, subscription, user, or
+                                      other relevant record.
+
+  `status`                            Delivery state; exact choices are
+                                      not specified.
+
+  `attempt_count`                     Number of attempts, if retries are
+                                      persisted.
+
+  `last_attempt_at`                   Last dispatch attempt.
+
+  `sent_at`                           Successful dispatch time, if
+                                      available.
+
+  `failure_reason`                    Safe internal failure detail.
+
+  `created_at`, `updated_at`          Timestamps.
+  -----------------------------------------------------------------------
+
+This is a proposed logical shape, not a mandated schema. Reuse an
+existing notification model if present.
+
+For password reset, never persist/log the raw reset token or complete
+reset URL in notification logs.
+
+### 6.4 Templates and content
+
+Provide event-specific transactional email content. It must: - Identify
+the relevant action/record without exposing unrelated customer data. -
+Use server-derived values, not browser-supplied totals/statuses. - Avoid
+secrets, reset tokens in logs, and internal stack traces. - Reflect
+actual domain state. - Avoid claiming a lifecycle transition that has
+not occurred.
+
+The source does not define exact copy, branding, localization, HTML
+design, sender identity, or Staff recipient selection. Follow existing
+project conventions and obtain product decisions where needed.
+
+### 6.5 Delivery failures and retries
+
+FR-10.4 is Should priority. It requires failures to be logged and
+retried, but retry count, interval, backoff, maximum age, and terminal
+state are unspecified.
+
+Implementation should: - Record failed attempts safely. - Preserve
+enough context to retry without reconstructing business state
+incorrectly. - Retry only under a documented policy. - Avoid duplicate
+successful sends after reruns. - Continue processing unrelated
+notifications when one email fails. - Never roll back a successful
+payment, invoice transition, or password-reset operation because email
+failed. - Catch expected provider exceptions narrowly; log unexpected
+failures safely. - Never expose provider stack traces or secrets.
+
+A timeout may leave delivery uncertain. Do not claim exactly-once
+delivery unless the provider supports it. Document duplicate handling
+for uncertain outcomes.
+
+### 6.6 Dunning and reminder tracking
+
+M7 owns overdue eligibility and dunning rules; M10 supplies scheduled
+invocation and email delivery.
+
+Open Item C working assumption: - First reminder: 1 day past due. -
+Second reminder: 7 days past due. - Third reminder: 14 days past due. -
+After final failure: automatically pause the subscription.
+
+This cadence and final action are not confirmed. Do not hard-code UI
+copy presenting them as final.
+
+Reminder handling must: - Select overdue invoices eligible for the next
+reminder. - Skip Paid invoices. - Record reminder stage and send time. -
+Avoid duplicate successful reminder stages after cron reruns. - Log
+failures and allow safe retry. - Continue other invoices if one email
+fails. - Apply subscription pause only through the subscription
+lifecycle service and only after Open Item C is confirmed.
+
+Reminder history may belong to M7 because it represents invoice-specific
+dunning state. M10 should not duplicate it.
+
+------------------------------------------------------------------------
+
+## 7. User experience and operational feedback
+
+UI/UX principles require visible automation and no silent failure: -
+Show when a job ran, what it processed, and what failed where
+relevant. - Log email delivery failures. - Show a visible failure state
+to Admin/Staff where operational follow-up is needed. - Avoid duplicate
+customer emails on safe reruns.
+
+Reuse existing operational surfaces: - Billing-run list/result detail
+for billing outcomes. - Subscription detail for `payment_failed`,
+lifecycle status, and warnings. - Invoice detail/history for invoice
+delivery and payment/reminder context where available. - Existing
+notification delivery state where available.
+
+The source does not define a scheduler-management screen, cron editor,
+job calendar, or manual retry console. These are not required
+deliverables unless separately approved.
+
+Do not expose provider internals. An email failure must not encourage
+Staff to repeat a payment or billing action if the business transaction
+already succeeded.
+
+------------------------------------------------------------------------
+
+## 8. Error handling, security, and reliability
+
+### Scheduled task errors
+
+-   Catch failures at individual-record boundaries where possible.
+-   Log the failed record and safe reason.
+-   Continue unrelated records.
+-   Never use bare `except:` or silently swallow exceptions.
+-   Catch the narrowest expected exception.
+-   Safely surface unexpected failures after logging.
+-   Ensure partial batches can resume without duplicating completed
+    work.
+
+### Email errors
+
+-   Email failure must not roll back the associated business
+    transaction.
+-   Log failure and mark for retry when configured.
+-   Continue unrelated notifications.
+-   Do not expose stack traces, provider secrets, or credentials.
+-   Do not log password-reset tokens or full reset URLs.
+
+### Endpoint security
+
+-   Protect cron endpoints with the configured secret.
+-   Validate request inputs.
+-   Do not trust caller-supplied task names, recipients, event types, or
+    object IDs.
+-   Enforce permissions for manual actions separately from cron
+    authentication.
+-   Use environment variables for cron and provider secrets.
+-   Any CSRF exemption must be justified and documented under project
+    standards.
+
+### State and concurrency
+
+-   PostgreSQL is the source of truth.
+-   No in-memory scheduler locks or global state.
+-   Use database constraints and row locking where required.
+-   Jobs must be safe under duplicate and overlapping invocations.
+-   Use persistent state for retry eligibility/progress where required.
+
+------------------------------------------------------------------------
+
+## 9. Suggested implementation sequence
+
+1.  Inspect repository, `vercel.json`, Django settings, email
+    configuration, and domain `tasks.py` modules.
+2.  Identify existing email dispatch and notification logs; reuse where
+    suitable.
+3.  Map each scheduled operation to its domain owner and task entry
+    point.
+4.  Confirm cron frequencies and operational timezone.
+5.  Implement/complete a small email-provider boundary.
+6.  Implement shared dispatch and delivery logging.
+7.  Add templates for the five required email categories.
+8.  Implement/complete protected cron endpoints.
+9.  Configure cron invocations for billing, renewals, plan auto-close,
+    quotation expiry, and dunning.
+10. Ensure each domain task is bounded, resumable, and idempotent.
+11. Add safe notification retry according to approved policy.
+12. Verify duplicate/overlapping invocations do not duplicate business
+    operations or successful reminder stages.
+13. Add endpoint, idempotency, batch continuation, email, and retry
+    tests.
+14. Validate Vercel execution limits and cron configuration.
+15. Run lint, formatting, migration checks, tests, and dependency audit.
+16. Record unresolved policies for approval.
+
+------------------------------------------------------------------------
+
+## 10. Testing strategy
+
+### Scheduler and cron tests
+
+-   Valid cron secret permits the intended endpoint.
+-   Missing/invalid secret is rejected.
+-   Public caller cannot invoke privileged tasks.
+-   Endpoint dispatches only its predefined task.
+-   Duplicate invocation is safe.
+-   Overlapping invocation does not duplicate state changes.
+-   Task processing is bounded and resumable.
+-   One record failure does not stop unrelated records.
+-   Billing preserves Created / Skipped / Failed results.
+-   Plan auto-close and quotation expiry do not repeat invalid
+    transitions.
+-   Renewal follows approved retry/grace policy.
+-   Dunning does not resend the same successful reminder stage.
+
+### Email provider tests
+
+-   Success returns normalized success.
+-   Failure is logged.
+-   Timeout/unknown result is handled without exposing internals.
+-   Credentials come from environment configuration.
+-   Secrets, reset tokens, and reset URLs are absent from logs.
+-   Email failure does not roll back business state.
+-   One failed email does not stop unrelated notifications.
+
+### Notification event tests
+
+-   Password reset event dispatches email while M1 owns token
+    generation/validation.
+-   Invoice delivery sends the correct invoice email.
+-   Payment failure sends customer notification.
+-   Overdue reminder sends the correct reminder stage.
+-   Staff alert uses intended Staff recipient/context.
+-   Customer-specific content is scoped correctly.
+-   Content does not claim a state transition that did not occur.
+
+### Retry tests
+
+-   Failed delivery is persisted/logged.
+-   Eligible failed delivery can be retried.
+-   Retry policy limits attempts as configured.
+-   Successful notification is not resent on cron rerun.
+-   Uncertain provider outcomes follow documented duplicate policy.
+-   Retry processing is bounded and resumable.
+
+### Deployment checks
+
+-   `vercel.json` contains intended cron configuration.
+-   Production cron endpoints are protected.
+-   No in-process scheduler or long-running worker is introduced.
+-   No persistent business state is stored in local filesystem/process
+    memory.
+-   Vercel execution limits are respected.
+-   `ruff check .`, `ruff format .`,
+    `python manage.py makemigrations --check --dry-run`, and `pytest`
+    pass, or unrun checks are explicitly marked.
+-   Dependency audit is run before release.
+
+------------------------------------------------------------------------
+
+## 11. Open decisions and assumptions
+
+  ---------------------------------------------------------------------------
+  \#                Topic             Source position     Decision needed
+  ----------------- ----------------- ------------------- -------------------
+  1                 Cron frequency    Required tasks      Define schedule for
+                                      listed;             each task.
+                                      times/frequencies   
+                                      absent.             
+
+  2                 Business timezone Not defined         Confirm timezone
+                                      globally.           for date-based jobs
+                                                          and due-date
+                                                          comparisons.
+
+  3                 Cron overlap      Jobs must be        Decide whether
+                                      idempotent.         run-level
+                                                          locks/records are
+                                                          needed in addition
+                                                          to per-record
+                                                          protection.
+
+  4                 Batch size        Hundreds of         Measure safe batch
+                                      subscriptions;      size and
+                                      Vercel time limits  continuation
+                                      apply.              strategy.
+
+  5                 Email provider    Replaceable         Select provider and
+                                      provider required;  verify runtime
+                                      no provider named.  compatibility.
+
+  6                 Sender identity   Not specified.      Confirm sender
+                                                          name/address and
+                                                          reply-to.
+
+  7                 Staff recipients  Staff alerts        Define which Staff
+                                      required;           receive each alert.
+                                      recipients          
+                                      unspecified.        
+
+  8                 Retry policy      Failures            Define retry count,
+                                      logged/retried;     backoff, max age,
+                                      details absent.     terminal state.
+
+  9                 Duplicate email   Successful reminder Define
+                                      reruns must not     uncertain-timeout
+                                      duplicate.          handling and
+                                                          provider
+                                                          idempotency
+                                                          support.
+
+  10                Notification      Not specified.      Define
+                    retention                             retention/access
+                                                          policy for delivery
+                                                          logs.
+
+  11                Dunning cadence   Open Item C: 1, 7,  Confirm cadence and
+                                      14 days, then       final action.
+                                      auto-pause (working 
+                                      assumption).        
+
+  12                Renewal retry     FR-4.8 leaves retry Confirm retry
+                                      N and final action  count, intervals,
+                                      open.               grace period,
+                                                          pause/close
+                                                          behavior.
+
+  13                Quote expiry      Expired quotes      Confirm job
+                    frequency         cannot be accepted. frequency and exact
+                                                          validity boundary.
+
+  14                Plan auto-close   Scheduler closes    Confirm frequency
+                    frequency         eligible plans      and date/time
+                                      after end date.     boundary.
+
+  15                Scheduler         UI asks for visible Decide if existing
+                    visibility        automation; no      logs suffice or an
+                                      scheduler screen    operational view is
+                                      specified.          needed.
+  ---------------------------------------------------------------------------
+
+### Assumptions to avoid
+
+-   Do not assume a cron hour, timezone, or frequency.
+-   Do not assume Vercel Cron is exactly-once.
+-   Do not assume a timeout means an email was not delivered.
+-   Do not claim exactly-once email delivery without provider support.
+-   Do not roll back business state because email failed.
+-   Do not add a queue, worker, or scheduler library without approval.
+-   Do not move domain business logic into M10.
+-   Do not treat Open Item C or renewal retry policies as finalized.
+-   Do not assume a scheduler administration UI is required.
+
+------------------------------------------------------------------------
+
+## 12. Definition of Done
+
+-   [ ] FR-10.1 through FR-10.3 implemented.
+-   [ ] FR-10.4 failure logging/retry implemented or explicitly deferred
+    with approval.
+-   [ ] Scheduler invokes billing runs.
+-   [ ] Scheduler invokes automatic renewals.
+-   [ ] Scheduler invokes plan auto-close.
+-   [ ] Scheduler invokes quotation expiry.
+-   [ ] Scheduler invokes dunning reminders.
+-   [ ] Each task calls its owning domain entry point.
+-   [ ] Jobs are idempotent under reruns and overlapping invocations.
+-   [ ] Long work is bounded and resumable within Vercel limits.
+-   [ ] Cron endpoints are protected by configured secret.
+-   [ ] No Celery, Redis queue, APScheduler, or in-process scheduler
     introduced.
--   [ ] All unresolved product decisions are recorded and approved or
-    explicitly deferred.
+-   [ ] Emails cover password reset, invoice delivery, payment failure,
+    overdue reminders, and Staff alerts.
+-   [ ] Email provider is behind a small replaceable boundary.
+-   [ ] Delivery failures are logged and retried according to approved
+    policy.
+-   [ ] Email failure does not roll back originating business
+    transactions.
+-   [ ] Successful reminders are not duplicated on reruns.
+-   [ ] Secrets and reset tokens are not logged/exposed.
+-   [ ] Tests cover endpoint protection, idempotency, overlap, batching,
+    email failures, and retries.
+-   [ ] Migrations and project checks pass, or unrun checks are
+    documented.
+-   [ ] No unapproved dependencies or out-of-scope channels are
+    introduced.
+-   [ ] Open schedule/retry/dunning policies are approved or explicitly
+    deferred.
 
 ------------------------------------------------------------------------
 
-## 16. Developer self-review checklist
+## 13. Developer self-review
 
-Complete this checklist when implementing M7, in line with
-`CODING_STANDARDS.md`.
+  -----------------------------------------------------------------------
+  Area                    Review question         Status
+  ----------------------- ----------------------- -----------------------
+  Ownership               Does M10 orchestrate    Verify during
+                          without duplicating     implementation
+                          domain logic?           
 
-  -------------------------------------------------------------------------
-  Area                      Review question         Status
-  ------------------------- ----------------------- -----------------------
-  File/component structure  Are models, services,   To verify during
-                            selectors, providers,   implementation
-                            forms, views,           
-                            permissions, tasks, and 
-                            tests placed according  
-                            to the project          
-                            structure? Are views    
-                            thin?                   
+  Scheduler               Are all five scheduled  Verify
+                          operations configured?  
 
-  State management          Is PostgreSQL the       To verify during
-                            source of truth for     implementation
-                            payments, idempotency,  
-                            and reminder history?   
+  Idempotency             Are reruns and overlaps Verify
+                          safe at database/domain 
+                          level?                  
 
-  Payment integrity         Is the amount compared  To verify during
-                            with the stored invoice implementation
-                            total using Decimal?    
-                            Are                     
-                            partial/overpayments    
-                            rejected?               
+  Batching                Are long jobs bounded   Verify
+                          and resumable?          
 
-  Invoice lifecycle         Does M7 use the M5      To verify during
-                            transition service      implementation
-                            rather than assigning   
-                            invoice status          
-                            directly?               
+  Vercel                  Protected cron          Verify
+                          endpoints; no           
+                          in-process workers?     
 
-  Provider boundary         Is `PaymentProvider`    To verify during
-                            minimal, with a mock    implementation
-                            implementation for      
-                            success, failure, and   
-                            delay?                  
+  Email boundary          Is provider contract    Verify
+                          small and replaceable?  
 
-  Idempotency/concurrency   Are duplicate           To verify during
-                            submissions and         implementation
-                            concurrent payment      
-                            attempts protected by   
-                            database constraints    
-                            and row locking?        
+  Event coverage          Are all five email      Verify
+                          categories implemented? 
 
-  Dunning                   Are reminder stages     To verify during
-                            persisted, retries      implementation
-                            safe, and cron          
-                            execution               
-                            bounded/idempotent?     
+  Retry                   Are failures            Verify
+                          logged/retryable        
+                          without duplicate       
+                          successful sends?       
 
-  Email behavior            Can email failures      To verify during
-                            occur without rolling   implementation
-                            back payment            
-                            transactions or         
-                            stopping other          
-                            reminders?              
+  Transactions            Can email fail without  Verify
+                          rolling back business   
+                          state?                  
 
-  Unused imports / dead     Are unused imports,     To verify during
-  code                      variables, stubs, debug implementation
-                            prints, and dead code   
-                            removed?                
+  Security                Are cron/provider       Verify
+                          secrets, reset tokens,  
+                          and customer data       
+                          protected?              
 
-  Dependencies              Were new packages       To verify during
-                            avoided unless          implementation
-                            justified, approved,    
-                            pinned, and compatible  
-                            with Vercel?            
+  Error handling          Are exceptions narrow   Verify
+                          and failures isolated   
+                          per record?             
 
-  Over-engineering          Were real gateways,     To verify during
-                            customer checkout,      implementation
-                            partial payments,       
-                            wallets, and            
-                            speculative payment     
-                            abstractions avoided?   
+  Dependencies            Are packages justified, Verify
+                          pinned,                 
+                          Vercel-compatible?      
 
-  Security                  Are payment actions     To verify during
-                            Admin/Staff-only? Are   implementation
-                            customer payment reads  
-                            ownership-scoped? Are   
-                            provider secrets        
-                            protected?              
-
-  Performance               Are payment and overdue To verify during
-                            lists paginated,        implementation
-                            indexed where           
-                            justified, and free of  
-                            N+1 behavior? Are       
-                            dunning batches         
-                            bounded?                
-  -------------------------------------------------------------------------
+  Tests                   Are scheduler,          Verify
+                          notification, retry,    
+                          and failure-path tests  
+                          present?                
+  -----------------------------------------------------------------------
 
 ------------------------------------------------------------------------
 
-## 17. Source of truth and conflict handling
+## 14. Source of truth
 
-This document is derived from the Brightloop Subscription Management
-System source documents:
+Derived from: 1. `REQUIREMENTS.md`: FR-10.1--FR-10.4, FR-1.4, FR-3.6,
+FR-4.8, FR-4.11, FR-5.2, FR-5.9, FR-7.8, NFR-2, NFR-5, NFR-7, NFR-9, and
+Open Items C/G/H. 2. `UI_UX.md`: notification events and failure
+behavior, dunning working assumption, scheduled billing/renewal flows,
+visible automation, and no-silent-failure principles. 3.
+`CODING_STANDARDS.md`: modular-monolith structure, task/service
+boundaries, PostgreSQL source of truth, transactions/locking, protected
+Vercel Cron, batching/resumability, error handling, and test standards.
 
-1.  `REQUIREMENTS.md` --- M7 Payments (FR-7.1 through FR-7.9),
-    role--permission matrix, invoice lifecycle in FR-5.6, due-date rule
-    in FR-5.7, automatic renewal failure behavior in FR-4.8, and Open
-    Items C, D, and I.
-2.  `CODING_STANDARDS.md` --- Django modular-monolith structure,
-    `apps/payments/` ownership, services/selectors boundaries, the
-    required `PaymentProvider` interface and mock gateway, PostgreSQL
-    constraints and transactions, Decimal money handling, concurrency,
-    logging, Vercel Cron, and test standards.
-3.  `UI_UX.md` --- Section 5.11 Payments, Admin/Staff audience, payment
-    list columns, record-payment fields and behavior, mock gateway
-    presentation, and customer portal restriction against online
-    payment.
-
-`REQUIREMENTS.md` defines what the product must do.
-`CODING_STANDARDS.md` defines how implementation must be structured and
-validated. `UI_UX.md` defines the expected interface and interaction
-behavior.
-
-Where the sources define behavior, this document preserves it. Where the
-sources leave a decision open, the uncertainty is recorded in Section 14
-instead of being silently replaced with an invented business rule. This
-document is an implementation baseline; it does not claim that M7 is
-already implemented.
+Requirements define what to build; coding standards define
+implementation constraints; UI/UX defines expected interaction and
+operational feedback. Unresolved decisions are recorded rather than
+silently resolved. This is an implementation baseline, not a claim that
+M10 is implemented.
