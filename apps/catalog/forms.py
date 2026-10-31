@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import Product, ProductVariant, Tax
+from .models import PaymentTerm, Product, ProductVariant, Tax
 from .services import PRODUCT_FIELDS, VARIANT_FIELDS
 
 
@@ -55,3 +55,21 @@ VariantFormSet = forms.inlineformset_factory(
     extra=1,
     can_delete=True,
 )
+
+
+class TaxForm(forms.ModelForm):
+    class Meta:
+        model = Tax
+        fields = ("name", "rate")
+        labels = {"rate": "Tax rate (%)"}
+        help_texts = {"rate": "Enter the percentage value, e.g. 18 for 18%."}
+
+
+class PaymentTermForm(forms.ModelForm):
+    class Meta:
+        model = PaymentTerm
+        fields = ("name", "days")
+        labels = {"days": "Due-date rule / number of days"}
+        help_texts = {
+            "days": "0 means due immediately; 30 means due 30 calendar days after the invoice date."
+        }

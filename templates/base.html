@@ -95,6 +95,10 @@
             <a href="{% url 'catalog:product_list' %}">Catalog</a>
             <a href="{% url 'plans:plan_list' %}">Plans</a>
           {% endif %}
+          {% if user|can:"manage_taxes_and_payment_terms" %}
+            <a href="{% url 'catalog:tax_list' %}">Taxes</a>
+            <a href="{% url 'catalog:payment_term_list' %}">Payment terms</a>
+          {% endif %}
           {% if user|can:"create_discount_rules" %}
             <a href="{% url 'discounts:discount_list' %}">Discounts</a>
           {% endif %}

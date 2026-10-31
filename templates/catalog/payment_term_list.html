@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Payment Terms · Brightloop{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Payment Terms</h1>
+  <a class="btn" href="{% url 'catalog:payment_term_create' %}">Add payment term</a>
+</div>
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th class="num">Days until due</th><th><span class="help">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for term in terms %}
+        <tr>
+          <td>{{ term.name }}</td>
+          <td class="num">{{ term.days }}</td>
+          <td class="actions">
+            <a href="{% url 'catalog:payment_term_edit' term.pk %}">Edit</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="3">No payment terms configured yet. <a href="{% url 'catalog:payment_term_create' %}">Add a payment term</a> to start.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

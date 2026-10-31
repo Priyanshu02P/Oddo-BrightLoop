@@ -6,7 +6,7 @@ from django.db import transaction
 from apps.accounts.permissions import Permission, has_permission
 
 from .exceptions import StaleVariantData
-from .models import Product, ProductVariant
+from .models import PaymentTerm, Product, ProductVariant, Tax
 
 logger = logging.getLogger(__name__)
 
@@ -86,3 +86,50 @@ def archive_product(*, actor, product):
         product.save(update_fields=["is_archived", "updated_at"])
     logger.info("Product %s archived by user %s", product.pk, actor.pk)
     return product
+
+
+TAX_FIELDS = ("name", "rate")
+PAYMENT_TERM_FIELDS = ("name", "days")
+
+
+def _require_tax_admin(actor):
+    if not has_permission(actor, Permission.MANAGE_TAXES_AND_PAYMENT_TERMS):
+        raise PermissionDenied
+
+
+def create_tax(*, actor, fields):
+    """Create a Tax record (FR-9.1). Admin only."""
+    _require_tax_admin(actor)
+    tax = Tax()
+    _apply(tax, fields, TAX_FIELDS)
+    logger.info("Tax %s created by user %s", tax.pk, actor.pk)
+    return tax
+
+
+def update_tax(*, actor, tax, fields):
+    """Update a Tax record. Admin only."""
+    _require_tax_admin(actor)
+    with transaction.atomic():
+        tax = Tax.objects.select_for_update().get(pk=tax.pk)
+        _apply(tax, fields, TAX_FIELDS)
+    logger.info("Tax %s updated by user %s", tax.pk, actor.pk)
+    return tax
+
+
+def create_payment_term(*, actor, fields):
+    """Create a PaymentTerm record (FR-9.3). Admin only."""
+    _require_tax_admin(actor)
+    term = PaymentTerm()
+    _apply(term, fields, PAYMENT_TERM_FIELDS)
+    logger.info("PaymentTerm %s created by user %s", term.pk, actor.pk)
+    return term
+
+
+def update_payment_term(*, actor, payment_term, fields):
+    """Update a PaymentTerm record. Admin only."""
+    _require_tax_admin(actor)
+    with transaction.atomic():
+        payment_term = PaymentTerm.objects.select_for_update().get(pk=payment_term.pk)
+        _apply(payment_term, fields, PAYMENT_TERM_FIELDS)
+    logger.info("PaymentTerm %s updated by user %s", payment_term.pk, actor.pk)
+    return payment_term

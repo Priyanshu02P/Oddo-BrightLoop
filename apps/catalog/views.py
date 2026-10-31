@@ -7,8 +7,8 @@ from apps.accounts.permissions import Permission, require_permission
 
 from . import selectors, services
 from .exceptions import StaleVariantData
-from .forms import ProductForm, VariantFormSet
-from .models import Product
+from .forms import PaymentTermForm, ProductForm, TaxForm, VariantFormSet
+from .models import PaymentTerm, Product, Tax
 
 STATUS_FILTERS = (selectors.STATUS_ACTIVE, selectors.STATUS_ARCHIVED)
 STALE_VARIANTS_ERROR = (
@@ -91,3 +91,81 @@ def product_archive(request, pk):
         )
         return redirect("catalog:product_detail", pk=product.pk)
     return render(request, "catalog/product_archive.html", {"product": product})
+
+
+# --- Tax views ---
+
+
+@require_permission(Permission.MANAGE_TAXES_AND_PAYMENT_TERMS)
+def tax_list(request):
+    taxes = selectors.list_taxes()
+    return render(request, "catalog/tax_list.html", {"taxes": taxes})
+
+
+def _tax_form_page(request, tax=None):
+    instance = tax or Tax()
+    data = request.POST if request.method == "POST" else None
+    form = TaxForm(data, instance=instance)
+    if request.method == "POST" and form.is_valid():
+        fields = {name: form.cleaned_data[name] for name in services.TAX_FIELDS}
+        if tax is None:
+            tax = services.create_tax(actor=request.user, fields=fields)
+        else:
+            tax = services.update_tax(actor=request.user, tax=tax, fields=fields)
+        messages.success(request, f"Tax “{tax.name}” saved.")
+        return redirect("catalog:tax_list")
+    return render(request, "catalog/tax_form.html", {"form": form, "tax": tax})
+
+
+@require_permission(Permission.MANAGE_TAXES_AND_PAYMENT_TERMS)
+@require_http_methods(["GET", "POST"])
+def tax_create(request):
+    return _tax_form_page(request)
+
+
+@require_permission(Permission.MANAGE_TAXES_AND_PAYMENT_TERMS)
+@require_http_methods(["GET", "POST"])
+def tax_edit(request, pk):
+    return _tax_form_page(request, get_object_or_404(Tax, pk=pk))
+
+
+# --- PaymentTerm views ---
+
+
+@require_permission(Permission.MANAGE_TAXES_AND_PAYMENT_TERMS)
+def payment_term_list(request):
+    terms = selectors.list_payment_terms()
+    return render(request, "catalog/payment_term_list.html", {"terms": terms})
+
+
+def _payment_term_form_page(request, payment_term=None):
+    instance = payment_term or PaymentTerm()
+    data = request.POST if request.method == "POST" else None
+    form = PaymentTermForm(data, instance=instance)
+    if request.method == "POST" and form.is_valid():
+        fields = {name: form.cleaned_data[name] for name in services.PAYMENT_TERM_FIELDS}
+        if payment_term is None:
+            payment_term = services.create_payment_term(actor=request.user, fields=fields)
+        else:
+            payment_term = services.update_payment_term(
+                actor=request.user, payment_term=payment_term, fields=fields
+            )
+        messages.success(request, f"Payment term “{payment_term.name}” saved.")
+        return redirect("catalog:payment_term_list")
+    return render(
+        request,
+        "catalog/payment_term_form.html",
+        {"form": form, "payment_term": payment_term},
+    )
+
+
+@require_permission(Permission.MANAGE_TAXES_AND_PAYMENT_TERMS)
+@require_http_methods(["GET", "POST"])
+def payment_term_create(request):
+    return _payment_term_form_page(request)
+
+
+@require_permission(Permission.MANAGE_TAXES_AND_PAYMENT_TERMS)
+@require_http_methods(["GET", "POST"])
+def payment_term_edit(request, pk):
+    return _payment_term_form_page(request, get_object_or_404(PaymentTerm, pk=pk))

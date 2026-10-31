@@ -1,6 +1,6 @@
 from django.db.models import Count
 
-from .models import Product, Tax
+from .models import PaymentTerm, Product, Tax
 
 STATUS_ACTIVE = "active"
 STATUS_ARCHIVED = "archived"
@@ -27,3 +27,15 @@ def list_products_for_new_subscription_lines():
 
 def tax_exists():
     return Tax.objects.exists()
+
+
+def list_taxes():
+    return Tax.objects.order_by("name", "id")
+
+
+def list_payment_terms():
+    return PaymentTerm.objects.order_by("name", "id")
+
+
+def payment_term_exists():
+    return PaymentTerm.objects.exists()

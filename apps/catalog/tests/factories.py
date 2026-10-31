@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import factory
 
-from apps.catalog.models import Product, ProductVariant, Tax
+from apps.catalog.models import PaymentTerm, Product, ProductVariant, Tax
 
 
 class TaxFactory(factory.django.DjangoModelFactory):
@@ -32,3 +32,11 @@ class ProductVariantFactory(factory.django.DjangoModelFactory):
     dimension = "Brand"
     value = factory.Sequence(lambda n: f"Brand {n}")
     price_adjustment = Decimal("0.00")
+
+
+class PaymentTermFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = PaymentTerm
+
+    name = factory.Sequence(lambda n: f"Net {n * 15}")
+    days = factory.Sequence(lambda n: n * 15)

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Taxes · Brightloop{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Taxes</h1>
+  <a class="btn" href="{% url 'catalog:tax_create' %}">Add tax</a>
+</div>
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th class="num">Rate (%)</th><th><span class="help">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for tax in taxes %}
+        <tr>
+          <td>{{ tax.name }}</td>
+          <td class="num">{{ tax.rate }}</td>
+          <td class="actions">
+            <a href="{% url 'catalog:tax_edit' tax.pk %}">Edit</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="3">No taxes configured yet. <a href="{% url 'catalog:tax_create' %}">Add a tax</a> to start.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
