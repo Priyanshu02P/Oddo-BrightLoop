@@ -1,4 +1,4 @@
-﻿{% load rbac %}
+{% load rbac %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -6,35 +6,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Brightloop{% endblock %}</title>
   <style>
-    /* ── Brightloop design tokens (ported from UI/globals.css) ── */
+    /* ================================================================
+       Brightloop design tokens — ported 1:1 from UI/app/globals.css
+       ================================================================ */
     :root {
       color-scheme: light;
 
-      /* Font stack */
       --bl-font-sans: 'Euclid Circular A', 'Helvetica Neue', Helvetica, Arial, sans-serif;
       --bl-font-mono: 'Source Code Pro', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-      /* Surface */
+      /* surfaces */
       --bl-page:        #f9fbfa;
       --bl-surface:     #ffffff;
       --bl-subtle:      #f9fbfa;
       --bl-line:        #e8edeb;
       --bl-line-strong: #c1c7c6;
 
-      /* Text */
+      /* text */
       --bl-ink:   #001e2b;
       --bl-ink-2: #3d4f58;
       --bl-ink-3: #5c6c75;
       --bl-faint: #889397;
 
-      /* Brand (MongoDB Atlas forest green) */
+      /* brand */
       --bl-brand:       #00684a;
       --bl-brand-hover: #023430;
       --bl-brand-ink:   #ffffff;
       --bl-leaf:        #00ed64;
       --bl-link:        #016bf8;
 
-      /* Nav chrome */
+      /* nav chrome */
       --bl-nav:        #001e2b;
       --bl-nav-hover:  #112733;
       --bl-nav-active: #023430;
@@ -42,23 +43,35 @@
       --bl-nav-text:   #c1c7c6;
       --bl-nav-muted:  #889397;
 
-      /* Semantic */
+      /* semantic */
       --bl-good: #00684a;
       --bl-bad:  #db3030;
 
-      /* Status tones */
+      /* bar accent */
+      --bl-bar:        #a9ebcf;
+      --bl-bar-hover:  #6fdcb0;
+      --bl-bar-active: #00a35c;
+
+      /* status tones */
       --bl-ok-bg:      #e3fcf7; --bl-ok-fg:      #023430; --bl-ok-line:      #c0fae6;
       --bl-warn-bg:    #fef7db; --bl-warn-fg:    #944f01; --bl-warn-line:    #ffec9e;
       --bl-bad-bg:     #ffeae5; --bl-bad-fg:     #970606; --bl-bad-line:     #ffcdc7;
       --bl-info-bg:    #e1f7ff; --bl-info-fg:    #1254b7; --bl-info-line:    #c3e7fe;
       --bl-neutral-bg: #f1f4f3; --bl-neutral-fg: #3d4f58; --bl-neutral-line: #c1c7c6;
 
-      /* Legacy aliases (keep old template refs working) */
+      /* chart palette */
+      --bl-chart-1: #00a35c;
+      --bl-chart-2: #ffc010;
+      --bl-chart-3: #c1c7c6;
+      --bl-chart-4: #016bf8;
+      --bl-chart-5: #db3030;
+
+      /* ── Legacy aliases (keep old inline-style var refs working) ── */
       --ink:       var(--bl-ink);
-      --ground:    var(--bl-page);
       --surface:   var(--bl-surface);
       --line:      var(--bl-line);
       --muted:     var(--bl-ink-3);
+      --ground:    var(--bl-page);
       --teal:      var(--bl-brand);
       --teal-dark: var(--bl-brand-hover);
       --amber:     #944f01;
@@ -67,9 +80,12 @@
 
     /* ── Reset ── */
     *, *::before, *::after { box-sizing: border-box; }
+    * { scrollbar-width: thin; scrollbar-color: var(--bl-line-strong) transparent; }
+    ::selection { background: var(--bl-leaf); color: var(--bl-ink); }
 
     body {
       margin: 0;
+      min-height: 100vh;
       background: var(--bl-page);
       color: var(--bl-ink);
       font-family: var(--bl-font-sans);
@@ -85,59 +101,197 @@
       outline-offset: 1px;
     }
 
-    ::selection { background: var(--bl-leaf); color: var(--bl-ink); }
+    button { -webkit-tap-highlight-color: transparent; }
 
-    * { scrollbar-width: thin; scrollbar-color: var(--bl-line-strong) transparent; }
+    /* ================================================================
+       Shell layout — mirrors brightloop-dashboard.tsx
+       ================================================================ */
 
-    /* ── Topbar ── */
-    .topbar { background: var(--bl-nav); color: #fff; }
-    .topbar-inner {
-      max-width: 72rem; margin: 0 auto; padding: .75rem 1.5rem;
-      display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.5rem;
+    .shell { display: flex; min-height: 100vh; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      position: fixed;
+      inset-block: 0;
+      left: 0;
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      width: 240px;
+      border-right: 1px solid var(--bl-nav-line);
+      background: var(--bl-nav);
+      transform: translateX(-100%);
+      transition: transform .2s ease;
     }
-    .brand {
-      display: inline-flex; align-items: center; gap: .6rem;
-      color: #fff; font-weight: 700; font-size: 1.05rem;
-      text-decoration: none; letter-spacing: -.01em;
+    .sidebar.open { transform: translateX(0); }
+    @media (min-width: 1024px) { .sidebar { transform: translateX(0); } }
+
+    .sidebar-logo {
+      display: flex;
+      height: 56px;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--bl-nav-line);
+      padding: 0 1rem;
+      flex-shrink: 0;
     }
-    .loop {
-      width: 1.2rem; height: 1.2rem; border-radius: 50%;
-      border: 2.5px solid var(--bl-leaf); border-right-color: transparent;
-      transform: rotate(-35deg);
+    .sidebar-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .sidebar-icon {
+      display: flex; width: 28px; height: 28px;
+      align-items: center; justify-content: center;
+      border-radius: 4px; background: var(--bl-leaf); color: #001e2b;
+      font-size: 13px; font-weight: 900; line-height: 1;
     }
-    .topbar nav { display: flex; gap: .125rem; flex: 1; }
-    .topbar nav a {
-      color: var(--bl-nav-text); text-decoration: none;
-      padding: .3rem .625rem; border-radius: 4px; font-size: .875rem;
+    .sidebar-name { font-size: 1rem; font-weight: 700; letter-spacing: -.02em; color: #fff; }
+
+    .sidebar-body {
+      flex: 1; overflow-y: auto;
+      padding: 20px 12px;
+      display: flex; flex-direction: column; gap: 24px;
     }
-    .topbar nav a:hover { background: var(--bl-nav-hover); color: #fff; }
-    .who { display: flex; align-items: center; gap: .75rem; font-size: .85rem; color: var(--bl-nav-muted); }
-    .who form { margin: 0; }
-    .linklike {
+
+    .nav-group-label {
+      margin: 0 0 6px; padding: 0 12px;
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .1em;
+      color: var(--bl-nav-muted);
+    }
+    .nav-group nav { display: flex; flex-direction: column; gap: 1px; }
+
+    .nav-link {
+      position: relative;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 36px; padding: 0 12px;
+      border-radius: 4px;
+      font-size: 13px; font-weight: 500;
+      color: var(--bl-nav-text);
+      text-decoration: none;
+      background: none; border: 0; cursor: pointer;
+      width: 100%; text-align: left;
+      transition: background .1s, color .1s;
+    }
+    .nav-link:hover { background: var(--bl-nav-hover); color: #fff; }
+    .nav-link.active { background: var(--bl-nav-active); color: #fff; }
+    .nav-link.active::before {
+      content: '';
+      position: absolute; inset-block: 6px; left: 0;
+      width: 3px; border-radius: 0 3px 3px 0;
+      background: var(--bl-leaf);
+    }
+    .nav-link-inner { display: flex; align-items: center; gap: 10px; }
+
+    .nav-badge {
+      border-radius: 3px; background: var(--bl-leaf);
+      padding: 0 6px; font-size: 10px; font-weight: 700; line-height: 16px;
+      color: #001e2b;
+    }
+
+    .sidebar-footer { border-top: 1px solid var(--bl-nav-line); padding: 12px; flex-shrink: 0; }
+    .sidebar-user { display: flex; align-items: center; gap: 10px; padding: 8px 12px 0; }
+    .sidebar-avatar {
+      display: flex; width: 32px; height: 32px;
+      align-items: center; justify-content: center;
+      border-radius: 4px; background: var(--bl-nav-active);
+      font-size: 11px; font-weight: 700; color: var(--bl-leaf); flex-shrink: 0;
+    }
+    .sidebar-user-info { min-width: 0; flex: 1; }
+    .sidebar-user-name {
+      display: block; font-size: 13px; font-weight: 600; color: #fff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sidebar-user-role { display: block; font-size: 11px; color: var(--bl-nav-muted); }
+
+    /* overlay */
+    .sidebar-overlay {
+      display: none; position: fixed; inset: 0; z-index: 30;
+      background: rgba(0,0,0,.5);
+    }
+    .sidebar-overlay.visible { display: block; }
+
+    /* ── Main area ── */
+    .main-wrap { flex: 1; min-width: 0; }
+    @media (min-width: 1024px) { .main-wrap { padding-left: 240px; } }
+
+    /* ── Top bar ── */
+    .topbar {
+      position: sticky; top: 0; z-index: 20;
+      display: flex; height: 56px;
+      align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--bl-line);
+      background: var(--bl-surface);
+      padding: 0 1.5rem;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+
+    .menu-btn {
+      display: flex; width: 32px; height: 32px;
+      align-items: center; justify-content: center;
+      border-radius: 4px; background: none; border: 0;
+      cursor: pointer; color: var(--bl-ink-2);
+    }
+    .menu-btn:hover { background: var(--bl-subtle); }
+    @media (min-width: 1024px) { .menu-btn { display: none; } }
+
+    .workspace-btn {
+      display: none; height: 32px;
+      align-items: center; gap: 6px;
+      border-radius: 4px; border: 1px solid var(--bl-line-strong);
+      background: var(--bl-surface); padding: 0 10px;
+      font: inherit; font-size: 12px; font-weight: 600;
+      color: var(--bl-ink); cursor: pointer;
+    }
+    .workspace-btn:hover { background: var(--bl-subtle); }
+    @media (min-width: 1024px) { .workspace-btn { display: flex; } }
+    .workspace-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bl-bar-active); flex-shrink: 0; }
+
+    .topbar-right { display: flex; align-items: center; gap: 4px; }
+
+    .topbar-divider { width: 1px; height: 20px; background: var(--bl-line); margin: 0 6px; }
+
+    .topbar-user {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 6px; border-radius: 4px;
+      text-decoration: none; color: inherit;
+    }
+    .topbar-avatar {
+      display: flex; width: 28px; height: 28px;
+      align-items: center; justify-content: center;
+      border-radius: 4px; background: var(--bl-brand);
+      font-size: 11px; font-weight: 700; color: var(--bl-brand-ink); flex-shrink: 0;
+    }
+    .topbar-user-detail { display: none; text-align: left; }
+    @media (min-width: 640px) { .topbar-user-detail { display: block; } }
+    .topbar-user-name { display: block; font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--bl-ink); }
+    .topbar-user-role { display: block; font-size: 11px; line-height: 1.3; color: var(--bl-ink-3); }
+
+    .signout-btn {
       background: none; border: 0; padding: 0;
-      color: var(--bl-nav-text); font: inherit;
-      text-decoration: underline; cursor: pointer;
+      color: var(--bl-ink-3); font: inherit; font-size: 12px;
+      cursor: pointer; text-decoration: underline;
     }
-    .linklike:hover { color: #fff; }
+    .signout-btn:hover { color: var(--bl-ink); }
 
-    /* ── Page layout ── */
-    main { max-width: 72rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
-    main.narrow { max-width: 28rem; padding-top: 3.5rem; }
+    /* ── Page content ── */
+    .page-content {
+      max-width: 1450px; margin: 0 auto;
+      padding: 1.5rem 1.25rem 4rem;
+    }
+    @media (min-width: 768px) { .page-content { padding: 2rem 2rem 4rem; } }
+    .page-content.narrow { max-width: 28rem; padding-top: 3.5rem; }
 
+    /* ── Typography ── */
     h1 { font-size: 1.5rem; font-weight: 700; line-height: 1.25; margin: 0 0 1rem; color: var(--bl-ink); }
-    h2 { font-size: 1.05rem; font-weight: 700; margin: 0 0 .75rem; color: var(--bl-ink); }
+    h2 { font-size: .875rem; font-weight: 700; margin: 0 0 .5rem; color: var(--bl-ink); }
+    p { margin: 0 0 .75rem; }
 
     /* ── Panel / card ── */
-    .panel {
-      background: var(--bl-surface);
-      border: 1px solid var(--bl-line);
-      border-radius: 4px;
-      padding: 1.5rem;
-    }
+    .panel { background: var(--bl-surface); border: 1px solid var(--bl-line); border-radius: 4px; }
+    /* backward-compat: old templates set padding directly on .panel */
+    form.panel, div.panel, section.panel { padding: 1.25rem; }
 
     /* ── Forms ── */
     .field { margin-bottom: 1.1rem; }
-    label { display: block; font-size: .875rem; font-weight: 600; margin-bottom: .3rem; color: var(--bl-ink); }
+    label { display: block; font-size: .8125rem; font-weight: 600; margin-bottom: .3rem; color: var(--bl-ink); }
 
     input[type=email],
     input[type=password],
@@ -146,41 +300,44 @@
     input[type=date],
     select,
     textarea {
-      width: 100%; height: 2.25rem; padding: 0 .7rem;
+      width: 100%; height: 36px; padding: 0 .7rem;
       border: 1px solid var(--bl-line-strong); border-radius: 4px;
       font: inherit; font-size: .8125rem;
       background: var(--bl-surface); color: var(--bl-ink);
     }
-    textarea { height: auto; padding: .5rem .7rem; }
+    textarea { height: auto; padding: .45rem .7rem; }
+    input::placeholder, textarea::placeholder { color: var(--bl-ink-3); }
     input:hover, select:hover, textarea:hover { border-color: var(--bl-ink-3); }
     input:focus, select:focus, textarea:focus { border-color: var(--bl-brand); outline: none; }
+    input[type=checkbox] { width: auto; height: auto; }
 
     /* ── Buttons ── */
     .btn {
-      display: inline-flex; align-items: center; gap: .4rem;
+      display: inline-flex; align-items: center; gap: 6px;
+      height: 36px; padding: 0 .875rem;
       background: var(--bl-brand); color: var(--bl-brand-ink);
-      border: 0; border-radius: 4px;
-      padding: 0 1rem; height: 2.25rem;
+      border: 1px solid transparent; border-radius: 4px;
       font: inherit; font-size: .875rem; font-weight: 600;
       cursor: pointer; text-decoration: none; white-space: nowrap;
+      transition: background .12s;
     }
-    .btn:hover   { background: var(--bl-brand-hover); }
-    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .btn:hover   { background: var(--bl-brand-hover); color: var(--bl-brand-ink); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
     .btn.secondary {
       background: var(--bl-surface); color: var(--bl-ink);
-      border: 1px solid var(--bl-line-strong);
+      border-color: var(--bl-line-strong);
     }
-    .btn.secondary:hover { background: var(--bl-subtle); }
-    .btn.danger  { background: var(--bl-bad); color: #fff; }
-    .btn.danger:hover { background: #970606; }
-    @media (prefers-reduced-motion: no-preference) { .btn { transition: background .12s; } }
+    .btn.secondary:hover { background: var(--bl-subtle); color: var(--bl-ink); }
 
-    /* ── Feedback ── */
-    .errorlist { list-style: none; margin: .3rem 0 0; padding: 0; color: var(--bl-bad-fg); font-size: .85rem; }
+    .btn.danger { background: var(--bl-bad); color: #fff; border-color: transparent; }
+    .btn.danger:hover { background: #970606; color: #fff; }
+
+    /* ── Alerts ── */
     .alert {
       border-left: 3px solid var(--bl-brand);
       background: var(--bl-ok-bg); color: var(--bl-ok-fg);
-      padding: .65rem 1rem; margin-bottom: 1rem;
+      padding: .625rem 1rem; margin-bottom: 1rem;
       border-radius: 0 4px 4px 0;
       border-top: 1px solid var(--bl-ok-line);
       border-right: 1px solid var(--bl-ok-line);
@@ -188,26 +345,35 @@
       font-size: .875rem;
     }
     .alert.error   { border-left-color: var(--bl-bad); background: var(--bl-bad-bg); color: var(--bl-bad-fg); border-color: var(--bl-bad-line); }
-    .alert.warning { border-left-color: var(--amber);  background: var(--bl-warn-bg); color: var(--bl-warn-fg); border-color: var(--bl-warn-line); }
+    .alert.warning { border-left-color: #944f01; background: var(--bl-warn-bg); color: var(--bl-warn-fg); border-color: var(--bl-warn-line); }
 
+    .errorlist { list-style: none; margin: .3rem 0 0; padding: 0; color: var(--bl-bad-fg); font-size: .85rem; }
     .policy { color: var(--bl-faint); font-size: .85rem; margin: .4rem 0 0; padding-left: 1.2rem; }
     .help   { color: var(--bl-ink-3); font-size: .875rem; }
-    .links  { margin-top: 1.25rem; display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: .9rem; }
+    .links  { margin-top: 1.25rem; display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; font-size: .875rem; }
 
     /* ── Tables ── */
-    table { width: 100%; border-collapse: collapse; background: var(--bl-surface); font-size: .8125rem; }
-    th, td { text-align: left; padding: .6rem 1rem; border-bottom: 1px solid var(--bl-line); }
-    th { font-size: .6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--bl-ink-3); }
-    .tablewrap { overflow-x: auto; border: 1px solid var(--bl-line); border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; background: var(--bl-surface); }
+    thead { background: var(--bl-subtle); border-bottom: 1px solid var(--bl-line); }
+    th {
+      height: 40px; padding: 0 1rem; text-align: left;
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em;
+      color: var(--bl-ink-3);
+    }
+    td { height: 48px; padding: 0 1rem; font-size: .8125rem; border-bottom: 1px solid var(--bl-line); }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: var(--bl-subtle); }
+    .tablewrap { overflow-x: auto; border: 1px solid var(--bl-line); border-radius: 4px; background: var(--bl-surface); }
     .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-family: var(--bl-font-mono); }
 
     /* ── Status badges ── */
     .badge {
       display: inline-flex; align-items: center;
-      height: 1.2rem; padding: 0 .4rem;
-      border-radius: 3px; font-size: .625rem; font-weight: 700;
+      height: 20px; padding: 0 6px;
+      border-radius: 3px; font-size: 10px; font-weight: 700;
       text-transform: uppercase; letter-spacing: .06em;
-      border: 1px solid transparent;
+      border: 1px solid transparent; white-space: nowrap;
     }
     .badge.active, .badge.available, .badge.paid,
     .badge.created, .badge.completed, .badge.succeeded {
@@ -230,74 +396,253 @@
     .actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .head {
       display: flex; justify-content: space-between; align-items: center;
-      gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+      gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem;
     }
+    .head h1 { margin: 0; }
   </style>
 </head>
 <body>
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="{% url 'accounts:home' %}"><span class="loop" aria-hidden="true"></span>Brightloop</a>
-      {% if user.is_authenticated %}
-        <nav aria-label="Main">
-          {% if user|can:"view_dashboard" %}
-            <a href="{% url 'accounts:internal_home' %}">Dashboard</a>
+  <div class="shell">
+
+    <!-- Mobile overlay -->
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+    <!-- ═══ Sidebar ═══ -->
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+      <div class="sidebar-logo">
+        <a class="sidebar-brand" href="{% url 'accounts:home' %}">
+          <span class="sidebar-icon" aria-hidden="true">✦</span>
+          <span class="sidebar-name">brightloop</span>
+        </a>
+        <button class="menu-btn" style="color:var(--bl-nav-muted)" onclick="closeSidebar()" aria-label="Close navigation">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="sidebar-body">
+        {% if user.is_authenticated %}
+
+          {% if user|can:"view_dashboard" or user|can:"manage_subscriptions" or user|can:"manage_quotation_templates" %}
+          <div class="nav-group">
+            <p class="nav-group-label">Workspace</p>
+            <nav>
+              {% if user|can:"view_dashboard" %}
+              <a href="{% url 'accounts:internal_home' %}" class="nav-link {% block nav_dashboard %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+                  Dashboard
+                </span>
+              </a>
+              {% endif %}
+              {% if user|can:"manage_subscriptions" %}
+              <a href="{% url 'subscriptions:subscription_list' %}" class="nav-link {% block nav_subscriptions %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+                  Subscriptions
+                </span>
+              </a>
+              {% endif %}
+              {% if user|can:"manage_quotation_templates" %}
+              <a href="{% url 'subscriptions:template_list' %}" class="nav-link {% block nav_templates %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  Quotation templates
+                </span>
+              </a>
+              {% endif %}
+            </nav>
+          </div>
           {% endif %}
-          {% if user|can:"manage_catalog" %}
-            <a href="{% url 'catalog:product_list' %}">Catalog</a>
-            <a href="{% url 'plans:plan_list' %}">Plans</a>
+
+          {% if user|can:"manage_invoices" or user|can:"record_payments" or user|can:"run_billing" %}
+          <div class="nav-group">
+            <p class="nav-group-label">Finance</p>
+            <nav>
+              {% if user|can:"manage_invoices" %}
+              <a href="{% url 'billing:invoice_list' %}" class="nav-link {% block nav_invoices %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></svg>
+                  Invoices
+                </span>
+              </a>
+              {% endif %}
+              {% if user|can:"record_payments" %}
+              <a href="{% url 'payments:payment_list' %}" class="nav-link {% block nav_payments %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+                  Payments
+                </span>
+              </a>
+              {% endif %}
+              {% if user|can:"run_billing" %}
+              <a href="{% url 'billing:run_list' %}" class="nav-link {% block nav_billing_runs %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                  Billing runs
+                </span>
+              </a>
+              {% endif %}
+            </nav>
+          </div>
           {% endif %}
-          {% if user|can:"manage_taxes_and_payment_terms" %}
-            <a href="{% url 'catalog:tax_list' %}">Taxes</a>
-            <a href="{% url 'catalog:payment_term_list' %}">Payment terms</a>
+
+          {% if user|can:"manage_catalog" or user|can:"create_discount_rules" or user|can:"manage_taxes_and_payment_terms" or user|can:"manage_users" %}
+          <div class="nav-group">
+            <p class="nav-group-label">Configure</p>
+            <nav>
+              {% if user|can:"manage_catalog" %}
+              <a href="{% url 'catalog:product_list' %}" class="nav-link {% block nav_catalog %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                  Catalog
+                </span>
+              </a>
+              <a href="{% url 'plans:plan_list' %}" class="nav-link {% block nav_plans %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                  Plans
+                </span>
+              </a>
+              {% endif %}
+              {% if user|can:"create_discount_rules" %}
+              <a href="{% url 'discounts:discount_list' %}" class="nav-link {% block nav_discounts %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 14.14 14.14"/></svg>
+                  Discounts
+                </span>
+              </a>
+              {% endif %}
+              {% if user|can:"manage_taxes_and_payment_terms" %}
+              <a href="{% url 'catalog:tax_list' %}" class="nav-link {% block nav_taxes %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v4H4z"/><path d="M4 12h16v8H4z"/><path d="M9 12v8"/></svg>
+                  Taxes
+                </span>
+              </a>
+              <a href="{% url 'catalog:payment_term_list' %}" class="nav-link {% block nav_payment_terms %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+                  Payment terms
+                </span>
+              </a>
+              {% endif %}
+              {% if user|can:"manage_users" %}
+              <a href="{% url 'accounts:user_management' %}" class="nav-link {% block nav_users %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  User management
+                </span>
+              </a>
+              {% endif %}
+            </nav>
+          </div>
           {% endif %}
-          {% if user|can:"create_discount_rules" %}
-            <a href="{% url 'discounts:discount_list' %}">Discounts</a>
-          {% endif %}
-          {% if user|can:"manage_subscriptions" %}
-            <a href="{% url 'subscriptions:subscription_list' %}">Subscriptions</a>
-          {% endif %}
-          {% if user|can:"manage_invoices" %}
-            <a href="{% url 'billing:invoice_list' %}">Invoices</a>
-          {% endif %}
-          {% if user|can:"record_payments" %}
-            <a href="{% url 'payments:payment_list' %}">Payments</a>
-          {% endif %}
-          {% if user|can:"run_billing" %}
-            <a href="{% url 'billing:run_list' %}">Billing runs</a>
-          {% endif %}
-          {% if user|can:"manage_quotation_templates" %}
-            <a href="{% url 'subscriptions:template_list' %}">Quotation templates</a>
-          {% endif %}
-          {% if user|can:"manage_users" %}
-            <a href="{% url 'accounts:user_management' %}">User Management</a>
-          {% endif %}
+
           {% if user|can:"access_customer_portal" %}
-            <a href="{% url 'accounts:portal_home' %}">Overview</a>
-            <a href="{% url 'portal_subscriptions:subscription_list' %}">My subscriptions</a>
-            <a href="{% url 'portal_invoices:invoice_list' %}">My invoices</a>
-            <a href="{% url 'accounts:portal_account' %}">Account / security</a>
+          <div class="nav-group">
+            <p class="nav-group-label">My Account</p>
+            <nav>
+              <a href="{% url 'accounts:portal_home' %}" class="nav-link {% block nav_portal_home %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                  Overview
+                </span>
+              </a>
+              <a href="{% url 'portal_subscriptions:subscription_list' %}" class="nav-link {% block nav_portal_subs %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+                  My subscriptions
+                </span>
+              </a>
+              <a href="{% url 'portal_invoices:invoice_list' %}" class="nav-link {% block nav_portal_invoices %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></svg>
+                  My invoices
+                </span>
+              </a>
+              <a href="{% url 'accounts:portal_account' %}" class="nav-link {% block nav_portal_account %}{% endblock %}">
+                <span class="nav-link-inner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="5"/><path d="M3 21a9 9 0 0 1 18 0"/></svg>
+                  Account / security
+                </span>
+              </a>
+            </nav>
+          </div>
           {% endif %}
-        </nav>
-        <div class="who">
-          <span>{{ user.email }} ({{ user.get_role_display }})</span>
-          <form method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}
-            <button class="linklike" type="submit">Sign out</button>
-          </form>
+
+        {% endif %}
+      </div>
+
+      {% if user.is_authenticated %}
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div class="sidebar-avatar" aria-hidden="true">{{ user.email|slice:":2"|upper }}</div>
+          <div class="sidebar-user-info">
+            <span class="sidebar-user-name">{{ user.email }}</span>
+            <span class="sidebar-user-role">{{ user.get_role_display }}</span>
+          </div>
         </div>
+      </div>
       {% endif %}
-    </div>
-  </header>
-  <main class="{% block main_class %}{% endblock %}">
-    {% for message in messages %}
-      <div class="alert {{ message.tags }}" role="status">{{ message }}</div>
-    {% endfor %}
-    {% block content %}{% endblock %}
-  </main>
+    </aside>
+
+    <!-- ═══ Main wrapper ═══ -->
+    <div class="main-wrap">
+
+      <!-- Top bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="menu-btn" onclick="openSidebar()" aria-label="Open navigation">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
+          </button>
+          <button class="workspace-btn">
+            <span class="workspace-dot"></span>
+            Production workspace
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+        </div>
+
+        <div class="topbar-right">
+          {% if user.is_authenticated %}
+            <div class="topbar-divider"></div>
+            <div class="topbar-user">
+              <span class="topbar-avatar" aria-hidden="true">{{ user.email|slice:":2"|upper }}</span>
+              <span class="topbar-user-detail">
+                <span class="topbar-user-name">{{ user.email }}</span>
+                <span class="topbar-user-role">{{ user.get_role_display }}</span>
+              </span>
+            </div>
+            <form method="post" action="{% url 'accounts:logout' %}" style="margin:0">{% csrf_token %}
+              <button class="signout-btn" type="submit">Sign out</button>
+            </form>
+          {% endif %}
+        </div>
+      </header>
+
+      <!-- Page content -->
+      <main class="page-content {% block main_class %}{% endblock %}">
+        {% for message in messages %}
+          <div class="alert {{ message.tags }}" role="status">{{ message }}</div>
+        {% endfor %}
+        {% block content %}{% endblock %}
+      </main>
+
+    </div><!-- /.main-wrap -->
+  </div><!-- /.shell -->
+
   <script>
-    document.addEventListener("submit", function (event) {
-      var button = event.target.querySelector("button[type=submit]");
-      if (button) { setTimeout(function () { button.disabled = true; }, 0); }
+    function openSidebar() {
+      document.getElementById('sidebar').classList.add('open');
+      document.getElementById('sidebar-overlay').classList.add('visible');
+    }
+    function closeSidebar() {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('sidebar-overlay').classList.remove('visible');
+    }
+    // Disable submit button on submit to prevent double-submit
+    document.addEventListener('submit', function(e) {
+      var btn = e.target.querySelector('button[type=submit]');
+      if (btn) setTimeout(function() { btn.disabled = true; }, 0);
     });
   </script>
 </body>
