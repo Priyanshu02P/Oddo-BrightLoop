@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Account / security · Brightloop{% endblock %}
+{% block content %}
+<h1>Account / security</h1>
+<div class="panel">
+  <p><strong>Email:</strong> {{ user.email }}</p>
+  <p><a href="{% url 'accounts:password_reset' %}">Reset your password</a></p>
+  <form method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}
+    <button class="btn" type="submit">Sign out</button>
+  </form>
+</div>
+{% endblock %}

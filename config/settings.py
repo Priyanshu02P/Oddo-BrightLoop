@@ -10,9 +10,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
-from pathlib import Path
-import environ
 import os
+from pathlib import Path
+
+import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -47,6 +48,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'apps.accounts',
 ]
 
 MIDDLEWARE = [
@@ -64,7 +66,7 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -82,31 +84,51 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
+# PostgreSQL is the target database (DATABASE_URL). SQLite is only the local
+# fallback when DATABASE_URL is not set.
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': env.db(
+        'DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}'
+    ),
 }
 
 
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
 
+# M1 password policy (FR-1.3). The custom validator is the single source of the
+# policy, so Django's additional validators are intentionally not enabled: they
+# would add rules the requirements do not define.
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        'NAME': 'apps.accounts.validators.BrightloopPasswordValidator',
     },
 ]
+
+AUTH_USER_MODEL = 'accounts.User'
+
+LOGIN_URL = 'accounts:login'
+LOGIN_REDIRECT_URL = 'accounts:home'
+LOGOUT_REDIRECT_URL = 'accounts:login'
+
+# Database-backed sessions (no local memory/file state on serverless).
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+
+# Password-reset link lifetime in seconds. The requirements only say
+# "time-limited"; 1 hour is an implementation default, overridable per deploy.
+PASSWORD_RESET_TIMEOUT = env.int('PASSWORD_RESET_TIMEOUT', default=60 * 60)
+
+# Abuse protection (login, signup, password reset): (max attempts, window in
+# seconds). Thresholds are implementation configuration, not product
+# requirements. Counters live in the database (see apps.accounts.throttling).
+AUTH_THROTTLE = {
+    'login': (10, 15 * 60),
+    'signup': (10, 60 * 60),
+    'password_reset': (5, 60 * 60),
+}
+# WSGI META key holding the client IP. On Vercel set this to
+# HTTP_X_VERCEL_FORWARDED_FOR; REMOTE_ADDR is the proxy there.
+THROTTLE_IP_HEADER = env('THROTTLE_IP_HEADER', default='REMOTE_ADDR')
 
 
 # Internationalization
@@ -132,6 +154,35 @@ STATIC_URL = 'static/'
 
 MAILERS = {
     'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        'BACKEND': env(
+            'EMAIL_BACKEND',
+            default='django.core.mail.backends.console.EmailBackend',
+        ),
     },
+}
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='no-reply@brightloop.example')
+
+
+# Security (production values are the default whenever DEBUG is off)
+# https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
+
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
+# Vercel terminates TLS and forwards the original scheme in this header.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=not DEBUG)
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_HSTS_SECONDS = env.int(
+    'SECURE_HSTS_SECONDS', default=0 if DEBUG else 60 * 60 * 24 * 365
+)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+
+# Logging: stream to stdout/stderr, which Vercel captures.
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'console': {'class': 'logging.StreamHandler'}},
+    'root': {'handlers': ['console'], 'level': 'INFO'},
 }
