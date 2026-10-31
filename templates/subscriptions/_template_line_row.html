@@ -1,0 +1,7 @@
+<tr data-line-row>
+  <td>{{ line_form.id }}<div class="field">{{ line_form.product }}{{ line_form.product.errors }}</div></td>
+  <td><div class="field">{{ line_form.variant }}{{ line_form.variant.errors }}</div></td>
+  <td><div class="field">{{ line_form.quantity }}{{ line_form.quantity.errors }}</div></td>
+  <td><div class="field">{{ line_form.is_addon }}{{ line_form.is_addon.errors }}</div></td>
+  <td>{{ line_form.DELETE }}{% for error in line_form.non_field_errors %}<div class="errorlist">{{ error }}</div>{% endfor %}</td>
+</tr>

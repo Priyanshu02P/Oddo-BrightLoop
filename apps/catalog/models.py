@@ -26,6 +26,16 @@ class Tax(models.Model):
         return f"{self.name} ({self.rate}%)"
 
 
+class PaymentTerm(models.Model):
+    """Due-date rule such as Net 30 (FR-9.3). Administered by M9; M4 only references it."""
+
+    name = models.CharField(max_length=100)
+    days = models.PositiveIntegerField(help_text="Days from the invoice date until it is due.")
+
+    def __str__(self):
+        return self.name
+
+
 class ProductQuerySet(models.QuerySet):
     def available_for_new_lines(self):
         """Products that may be put on a new subscription line (FR-2.4)."""

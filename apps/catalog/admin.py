@@ -1,8 +1,10 @@
 from django.contrib import admin
 
-from .models import Tax
+from .models import PaymentTerm, Tax
 
-# Interim: Taxes are administered by M9, which has no screen yet. Registering
-# the model lets an Admin create the Tax records every product must reference.
+# Interim: Taxes and payment terms are administered by M9, which has no screen
+# yet. Registering them lets an Admin create the Tax records every product must
+# reference and the PaymentTerm records every subscription must reference.
 # Products are deliberately not registered: catalog writes go through services.
 admin.site.register(Tax)
+admin.site.register(PaymentTerm)

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}My subscriptions · Brightloop{% endblock %}
+{% block content %}
+<h1>My subscriptions</h1>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Number</th><th>Plan</th><th>Start</th><th>Expiry</th><th>Next billing</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for subscription in page %}
+        <tr>
+          <td><a href="{% url 'portal_subscriptions:subscription_detail' subscription.pk %}">{{ subscription.number }}</a></td>
+          <td>{{ subscription.plan.name }}</td>
+          <td>{{ subscription.start_date|date:"Y-m-d" }}</td>
+          <td>{{ subscription.expiry_date|date:"Y-m-d" }}</td>
+          <td>{{ subscription.next_billing_date|date:"Y-m-d"|default:"—" }}</td>
+          <td><span class="badge {{ subscription.status }}">{{ subscription.get_status_display }}</span>
+            {% if subscription.payment_failed %}<span class="badge warning">Payment failed</span>{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6">You have no subscriptions or quotations yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if page.has_other_pages %}
+  <div class="links">
+    {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}">Previous</a>{% endif %}
+    <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a href="?page={{ page.next_page_number }}">Next</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}

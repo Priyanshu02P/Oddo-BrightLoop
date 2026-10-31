@@ -1,102 +1,94 @@
-# M3. Plans
+# M4. Quotation Templates and Subscriptions
 
-**Project:** Brightloop Subscription Management System  
-**Module:** M3 — Plans  
-**Document type:** Current feature specification and implementation baseline  
-**Status:** Specification baseline derived from the project source documents  
-**Primary sources:** `REQUIREMENTS.md`, `UI_UX.md`, and `CODING_STANDARDS.md`
+**Document type:** Feature specification and implementation baseline  
+**Product:** Brightloop Subscription Management System  
+**Module:** M4 — Quotation Templates and Subscriptions  
+**Source documents:** `REQUIREMENTS.md`, `UI_UX.md`, and `CODING_STANDARDS.md`  
+**Status:** Specification baseline; not a claim that the feature is already implemented
 
 ---
 
 ## 1. Purpose and scope
 
-M3 defines how an Admin creates and manages subscription plans. A plan provides the commercial and lifecycle configuration used when a subscription is created and managed.
+M4 manages the commercial agreement between a customer and Brightloop: reusable quotation templates, quotation creation and acceptance, subscription records and lines, subscription lifecycle actions, renewals, add-ons, and mid-cycle changes that generate proration adjustments.
 
-A plan contains its name, price, billing period, minimum quantity, availability window, renewal mode, and enabled lifecycle options. The system must use these settings when determining whether a plan can be selected for a new subscription and which lifecycle actions are permitted for a subscription using that plan.
+The module connects the catalog and plan configuration to downstream invoicing and payment operations:
 
-M3 also includes the scheduled behavior required to close subscriptions whose plan has the **auto-close at end date** option enabled when the plan's end date passes.
+**Products and plans (M2/M3) → quotation template / quotation → subscription → invoice and payment (M5/M7).**
 
-This document describes the expected feature behavior. It is not evidence that the feature has already been implemented.
+M4 owns subscription and quotation business state. It must not duplicate product, plan, tax, payment-term, discount, invoice, or payment administration owned by other modules.
 
-### 1.1 Goals
+### 1.1 In scope
 
-- Allow Admin to create plans with the fields defined in FR-3.1.
-- Support daily, weekly, monthly, and yearly billing periods.
-- Allow Admin to enable or disable lifecycle options independently for each plan.
-- Store whether renewal is automatic or manual.
-- Restrict plan selection for new subscriptions to the plan's availability dates.
-- Automatically close eligible subscriptions after a plan's end date when auto-close is enabled.
-- Make plan configuration available to the quotation and subscription workflows in M4.
-- Keep plan data persistent in PostgreSQL and follow the project's Django modular-monolith architecture.
+- Admin creation and editing of quotation templates.
+- Staff and Admin use of existing templates when creating subscriptions/quotations.
+- Template plan and product lines, plus validity period in days.
+- Creation of a subscription from a template, copying all lines into editable subscription lines.
+- Subscription identity, customer, plan, dates, payment terms, status, and lines.
+- Sequential, never-reused subscription numbers.
+- Quotation sending, customer review, acceptance, expiry, and decline/close behavior.
+- Subscription status transitions and visibility of current status to every team member.
+- Customer portal actions subject to plan lifecycle options: view, accept quotation, pause, resume, cancel, upgrade/downgrade, and quantity change.
+- Automatic and manual renewal flows.
+- Pause/resume billing behavior.
+- Add-on line additions/removals during a subscription's life.
+- Proration for mid-cycle quantity, plan, and add-on changes, applied to the next invoice.
+- Quote-expiry and renewal scheduled task entry points, following the project deployment standards.
 
-### 1.2 In scope
+### 1.2 Out of scope
 
-- Admin-only plan management.
-- Plan list and plan create/edit form.
-- Plan name and price.
-- Billing period: daily, weekly, monthly, yearly.
-- Minimum quantity.
-- Availability start and end dates.
-- Per-plan lifecycle settings:
-  - Auto-close at end date.
-  - Close early.
-  - Pause.
-  - Renew.
-- Renewal mode: `automatic` or `manual`.
-- Availability validation for new subscription selection.
-- Scheduled auto-close behavior for subscriptions tied to plans configured to auto-close.
-- Server-side validation, persistence, audit integration, and automated tests.
+The following belong to other modules or are not specified as M4 functionality:
 
-### 1.3 Out of scope
-
-The following are not M3 deliverables unless a separate requirement or product decision adds them:
-
-- Product or variant management (M2).
-- Tax creation or tax-rate management (M9); plan price must not introduce a separate tax configuration that conflicts with product-level tax rules.
-- Payment-term management (M9).
-- Quotation-template management (M4).
-- Subscription creation, subscription-line editing, or the full subscription lifecycle UI (M4), except that M3 supplies plan data and configuration to those workflows.
-- Invoice generation, billing calculations, or payment collection (M5/M7).
-- Discount creation or discount calculations (M6).
-- A real payment gateway.
-- Multi-currency or multi-company support; the requirements currently assume one currency and one company, subject to confirmation.
-- Plan marketplace, public plan browsing, self-service plan purchasing, or customer-facing plan administration.
-- Plan cloning, version history, scheduled price changes, promotional pricing, trials, usage-based billing, or plan categories unless separately specified.
-- Automatically changing the price of an existing subscription when its plan is edited. Historical and in-force subscription pricing behavior is not defined and must be decided before implementation.
+- Product or variant creation and catalog administration (M2).
+- Plan creation, pricing configuration, availability dates, and lifecycle-option administration (M3).
+- Tax-rate administration and payment-term list administration (M9); M4 selects and references configured records.
+- Discount rule creation and redemption administration (M6). M4/M5 provide the subscription context needed for discount application.
+- Invoice creation, invoice status management, invoice PDF/email delivery, and billing-run administration (M5).
+- Payment recording or payment-provider implementation (M7). M4 invokes the renewal collection boundary but does not own payment records.
+- Dashboard and financial reporting (M8).
+- A customer-facing online payment action; the UI/UX source explicitly says not to assume this for the MVP.
+- Bulk subscription editing or bulk cancellation; not specified.
+- A generic workflow engine, message bus, microservices, or a new task queue. Coding standards require a Django modular monolith and prohibit unnecessary event-bus/queue architecture.
 
 ---
 
 ## 2. Requirement traceability
 
-All M3 requirements below are marked **Must (M)** in `REQUIREMENTS.md`.
+All FR-4 requirements below are marked Must (M) in `REQUIREMENTS.md`.
 
-| Requirement | Source requirement | Expected M3 behavior |
+| Requirement | Source requirement | M4 behavior / acceptance target |
 |---|---|---|
-| FR-3.1 | Admin can create plans with name, price, billing period (daily, weekly, monthly, yearly), minimum quantity, and availability start/end dates. | Provide an Admin-only plan form and persist each required field. |
-| FR-3.2 | Plans support auto-close at end date, close early, pause, and renew lifecycle options. | Store and expose these four lifecycle capabilities as plan-level options. |
-| FR-3.3 | Admin decides, plan by plan, which lifecycle options are enabled. | Each plan has its own independently configurable lifecycle settings. |
-| FR-3.4 | Each plan has `renewal_mode` = `automatic` or `manual`. | Store a constrained renewal-mode value and show it in plan management. |
-| FR-3.5 | A plan is only selectable for new subscriptions within its availability dates. | Validate availability against the proposed subscription start date on the server; the M4 selection UI should show only eligible plans. |
-| FR-3.6 | A plan configured to auto-close is closed by the scheduler when its end date passes. | Provide an idempotent scheduled operation that closes eligible subscriptions according to the plan's auto-close setting. |
+| FR-4.1 | Templates hold a predefined plan and product lines plus validity days. Admin creates/edits; Staff can use. | Admin-only template management; template selection available to Admin and Staff. |
+| FR-4.2 | A subscription can be created from a template; all lines are copied and editable. | Copy template plan and lines into subscription-owned records; later edits must not mutate the template. |
+| FR-4.3 | Subscription has unique number, customer, plan, start date, expiry date, payment terms. | Persist and validate all required subscription attributes; generate sequential never-reused number. |
+| FR-4.4 | Lines hold product, quantity, unit price, taxes, amount. | Store subscription lines and server-calculate line amounts/tax using product tax association and agreed monetary rules. |
+| FR-4.5 | Workflow: Draft → Quotation → Confirmed → Active → Closed. | Centralize and validate lifecycle transitions; support Paused as defined in Section 7. |
+| FR-4.6 | Every team member can see current subscription status. | Admin and Staff list/detail views expose status consistently. |
+| FR-4.7 | Customer portal actions: view, accept, pause, resume, cancel, upgrade/downgrade, quantity change; each depends on plan lifecycle options. | Enforce ownership, current state, and the associated plan option for every portal action. |
+| FR-4.8 | Automatic renewal; generate renewal invoice and attempt collection. Failure by due date sets `payment_failed`, emails customer, notifies Staff, and applies retry/grace rule. | Implement renewal orchestration and failure handling; integrate with M5/M7 and email boundary; make scheduled processing safe to retry. |
+| FR-4.9 | Manual renewal triggered by customer or Staff. | Provide Renew action only when manual renewal is enabled and the subscription is eligible. |
+| FR-4.10 | Paused subscription excluded from billing; resume recalculates next billing date. | Pause transition affects M5 billing eligibility; resume recalculates and persists next billing date. |
+| FR-4.11 | Customer accepts quote in portal; Quotation → Confirmed; expired quote cannot be accepted. | Validate expiry on the server at acceptance time and transition atomically. |
+| FR-4.12 | Add-ons are subscription lines and may be added/removed during subscription life. | Represent add-ons as subscription lines; apply eligibility and proration rules. |
+| FR-4.13 | Mid-cycle quantity, plan, or add-on changes create prorated charge or credit on next invoice. | Calculate daily-basis proration under current working assumption and persist adjustment for M5. |
+| FR-4.14 | Confirmed → Active on start date or first payment (Open Item H). | Use start date under the current documented working assumption; keep activation logic centralized. |
+| FR-4.15 | Subscription numbers sequential and never reused. | Use a concurrency-safe database-backed sequence/allocator; do not derive numbers from row count or reuse deleted values. |
 
-### 2.1 Related requirements and business rules
+### 2.1 Related business rules and non-functional requirements
 
-- **Role–Permission Matrix, Section 4:** only Admin can manage plans. Staff and Customer do not have plan-management permission.
-- **BR-3:** a subscription has exactly one plan and one customer.
-- **BR-12:** customers can only perform portal actions that the plan's lifecycle options allow.
-- **FR-4.7:** customer portal actions such as pause, resume, cancel, upgrade/downgrade, and quantity changes are permitted only when the plan's lifecycle options allow them.
-- **FR-4.8 and FR-4.9:** automatic and manual renewal flows depend on the plan's renewal mode.
-- **FR-4.10:** paused subscriptions are excluded from billing; on resume, the next billing date is recalculated.
-- **NFR-5:** relevant Admin changes and status changes are logged with actor and timestamp.
-- **NFR-7:** scheduled jobs must recover from failure and be safe to rerun.
-- **NFR-10:** monetary values use fixed-precision decimals, never floating point.
-
-### 2.2 Source-of-truth boundaries
-
-- `REQUIREMENTS.md` defines the mandatory behavior and business rules.
-- `UI_UX.md` describes the plan list, create/edit fields, and how plans are selected in the subscription flow.
-- `CODING_STANDARDS.md` defines the Django structure, database, service boundaries, security, scheduler constraints, and test approach.
-- Where the documents do not specify a behavior, this specification marks it as an open decision rather than silently inventing a rule.
+- **BR-3:** exactly one Plan and one Customer per Subscription.
+- **BR-6:** a Paused subscription is never billed; billing resumes from a recalculated date.
+- **BR-8:** tax comes only from the Product's tax.
+- **BR-11:** a quotation cannot be accepted after its validity period.
+- **BR-12:** Customers can perform only portal actions allowed by the Plan lifecycle options.
+- **BR-13:** prices are tax-exclusive; tax is added on top (working assumption in the requirements).
+- **BR-14:** one currency and one company are assumed, subject to the requirements' confirmation item.
+- **NFR-1:** pages respond in under two seconds with thousands of subscriptions.
+- **NFR-3 / NFR-7:** transactional, idempotent operations and safe scheduled-job retries.
+- **NFR-4:** server-side RBAC, customer data isolation, and common web-security protections.
+- **NFR-5:** status changes and relevant actions are audited with actor and timestamp.
+- **NFR-9:** email and scheduler integrations remain behind replaceable boundaries.
+- **NFR-10:** fixed-precision decimal money handling; never use floating point.
 
 ---
 
@@ -104,729 +96,1007 @@ All M3 requirements below are marked **Must (M)** in `REQUIREMENTS.md`.
 
 ### 3.1 Admin
 
-Admin is the only role permitted to:
+Admin can:
 
-- Open the plan-management area.
-- View the plan list and plan details.
-- Create a plan.
-- Edit plan fields and lifecycle settings.
-- Configure `renewal_mode`.
-- Enable or disable lifecycle options for an individual plan.
-- Review plan availability and status.
+- Create, view, and edit quotation templates.
+- Use quotation templates.
+- Create and manage subscriptions.
+- View subscription status, details, lines, linked billing history, and activity history.
+- Send quotations and perform permitted internal lifecycle operations.
+- Accept a quotation on behalf of a customer where the workflow permits it.
+- Manage subscription changes, renewal operations, and customer-facing actions as authorized by the business rules.
 
 ### 3.2 Internal Staff
 
-Staff may use plans in day-to-day subscription and quotation workflows as allowed by M4, but must not:
+Staff can:
 
-- Create plans.
-- Edit plans.
-- Change plan prices or billing periods.
-- Change plan availability dates or minimum quantity.
-- Change renewal mode.
-- Change lifecycle options.
+- View and manage subscriptions for operational work.
+- Use existing quotation templates while creating a subscription/quotation.
+- Send quotations and monitor acceptance or expiry.
+- View current status and subscription history.
+- Perform permitted subscription operations and trigger manual renewal where allowed.
 
-Staff access to plan information needed to create a subscription is distinct from permission to manage plan configuration. The exact read-only plan detail visibility should follow the M4 workflow and existing project permission conventions.
+Staff cannot create, edit, or manage quotation templates. The UI must not present template-management controls to Staff, and server-side endpoints must deny direct attempts.
 
 ### 3.3 Customer
 
-Customers do not manage plans. They may interact with their own subscriptions only through actions permitted by the lifecycle settings of the relevant plan and the subscription's current state.
+Customer can access only their own subscription and quotation records. Through the portal, a Customer can:
 
-### 3.4 Authorization requirements
+- View their subscriptions and current status.
+- Review and accept their own valid quotations.
+- View permitted subscription details and add-ons.
+- Pause, resume, cancel, upgrade/downgrade, change quantity, and request permitted add-on changes only when the selected Plan enables the relevant lifecycle action.
+- Trigger manual renewal where manual renewal is enabled and the subscription is eligible.
 
-- Enforce Admin-only plan-management permissions on the server for every list, detail, create, update, and other management endpoint.
-- Hiding a menu item or button is not sufficient authorization.
-- Staff and Customer requests to plan-management endpoints must be denied even if they construct the URL manually.
-- Apply default-deny behavior to permissions not explicitly granted by the role matrix.
-- Do not allow a submitted role, permission, or ownership field to elevate access.
+Customer cannot access another customer's data, create or edit quotation templates, run billing, record payments, or access internal dashboards/reports.
+
+### 3.4 Permission matrix for M4
+
+| Action | Admin | Staff | Customer |
+|---|---:|---:|---:|
+| List/view quotation templates | Yes | No template management; may select/use | No |
+| Create/edit quotation templates | Yes | No | No |
+| Use a quotation template | Yes | Yes | No |
+| Create/manage subscriptions | Yes | Yes | Own records and permitted portal actions only |
+| View subscription status | Yes | Yes | Own subscriptions |
+| Send quotation | Yes | Yes | No |
+| Accept quotation | Yes, on behalf where permitted | Optional/on behalf where permitted | Own valid quotation |
+| Pause/resume/cancel | Subject to workflow and Plan options | Subject to workflow and Plan options | Own subscription, Plan option required |
+| Upgrade/downgrade/change quantity | Subject to workflow and Plan options | Subject to workflow and Plan options | Own subscription, Plan option required |
+| Add/remove add-ons | Subject to workflow and Plan options | Subject to workflow and Plan options | Own subscription, permitted action required |
+| Manual renewal | Yes, where eligible | Yes, where eligible | Own subscription, where enabled |
+| Automatic renewal job | System task under protected execution | No direct job administration implied | No |
+
+**Authorization rule:** the table is a capability boundary, not a substitute for checking state and Plan options. Every protected view, service operation, and object lookup must enforce authorization server-side. Default deny for unlisted capabilities.
 
 ---
 
-## 4. Plan data model
+## 4. Domain model and data requirements
 
-The domain entity is `Plan`. The exact Django model implementation should match the existing repository conventions and any shared base models already present.
+The following is the logical model required by the source documents. Field names can follow repository conventions, but persisted behavior must remain equivalent. Do not create duplicate entities if the project already has equivalent models.
 
-### 4.1 Required fields
+### 4.1 QuotationTemplate
 
-| Field | Expected type | Required | Description |
-|---|---|---:|---|
-| `name` | String / `CharField` | Yes | Human-readable plan name. |
-| `price` | `DecimalField` | Yes | Plan price, stored using fixed precision. |
-| `billing_period` | Constrained string / choices | Yes | One of `daily`, `weekly`, `monthly`, or `yearly`. |
-| `minimum_quantity` | Positive integer or project-equivalent type | Yes | Minimum quantity allowed for the plan. |
-| `availability_start_date` | Date | Yes, subject to source interpretation | First date on which the plan may be selected for a new subscription. |
-| `availability_end_date` | Date | Yes, subject to source interpretation | Last date on which the plan may be selected for a new subscription. |
-| `renewal_mode` | Constrained string / choices | Yes | `automatic` or `manual`. |
-| `auto_close_at_end_date` | Boolean | Yes | Whether subscriptions using this plan are automatically closed after the plan end date. |
-| `allow_close_early` | Boolean | Yes | Whether the plan permits early closure. |
-| `allow_pause` | Boolean | Yes | Whether the plan permits pausing. |
-| `allow_renew` | Boolean | Yes | Whether the plan permits renewal. |
+| Attribute | Required | Description / rule |
+|---|---:|---|
+| `id` | Yes | Database identifier. |
+| `name` | Yes | Human-readable template name; reject blank values. |
+| `plan` | Yes | Reference to one configured Plan. |
+| `validity_days` | Yes | Number of days the generated quotation remains valid. Must be a positive integer unless the product decision defines another boundary. |
+| `lines` | Yes | Predefined product lines associated with the template. |
+| `created_at`, `updated_at` | Recommended | Standard timestamps, if consistent with project conventions. |
+| audit metadata | Required behavior | Admin create/edit actions identify actor, object, operation, and timestamp through the shared audit mechanism. |
 
-The source describes the availability start and end dates as plan fields. If the repository uses different field names, retain its established naming convention while preserving the same meaning.
+Template line data must carry the product and the commercial defaults needed to initialize subscription lines. The source specifies plan and product lines but does not enumerate a separate template-line schema or all editable line attributes. Reuse the subscription-line structure where appropriate, and confirm whether template lines need variant, quantity, unit-price override, or tax snapshot fields before fixing the schema.
 
-### 4.2 Suggested choices
+### 4.2 Subscription
 
-`billing_period`:
+| Attribute | Required | Description / rule |
+|---|---:|---|
+| `id` | Yes | Database identifier. |
+| `number` | Yes | Sequential business identifier; unique and never reused. |
+| `customer` | Yes | Exactly one Customer (BR-3). |
+| `plan` | Yes | Exactly one Plan (BR-3). |
+| `start_date` | Yes | Start/activation date. |
+| `expiry_date` | Yes | Subscription expiry date. Exact relationship to Plan end date must follow confirmed business semantics. |
+| `payment_terms` | Yes | Reference to configured PaymentTerm. |
+| `status` | Yes | Controlled lifecycle status; use Django `TextChoices` or equivalent enum. |
+| `renewal_mode` | Yes, from Plan | Automatic or manual as configured on the selected Plan; avoid an independent conflicting setting unless the domain design requires a snapshot. |
+| `next_billing_date` | Required operationally | Used by billing and recalculated on resume; exact initial calculation follows billing rules. |
+| `payment_failed` | Optional flag | Additional boolean/status flag for automatic-renewal failure; not a lifecycle status. Cleared on payment. |
+| quotation validity metadata | Required for quote | Persist enough information to determine the quote's `valid_until` and reject late acceptance. |
+| audit timestamps | Recommended | Standard creation/update timestamps and shared audit events for transitions/actions. |
 
-- `daily`
-- `weekly`
-- `monthly`
-- `yearly`
+The requirements explicitly list unique number, customer, plan, start date, expiry date, and payment terms. Other fields above are derived from required workflows and should be reconciled with existing project models before migration.
 
-`renewal_mode`:
+### 4.3 SubscriptionLine
 
-- `automatic`
-- `manual`
+| Attribute | Required | Description / rule |
+|---|---:|---|
+| `id` | Yes | Database identifier. |
+| `subscription` | Yes | Parent Subscription. |
+| `product` | Yes | Product reference from M2. |
+| `quantity` | Yes | Positive quantity; exact decimal/integer precision should follow the product decision and existing catalog conventions. |
+| `unit_price` | Yes | Fixed-precision decimal. Server-authoritative, not trusted from the browser. |
+| `tax` / tax rate snapshot | Required behavior | Tax is sourced from the Product's tax (BR-8); invoice creation must preserve the applicable tax rate per invoice line under M5. |
+| `amount` | Yes | Server-calculated line amount; do not accept a client-computed total as authoritative. |
+| line type / add-on marker | Needed to distinguish add-ons if required | Add-ons are subscription lines (FR-4.12). Exact marker/schema may follow existing model design. |
 
-Use Django `TextChoices` or the project's established enum convention rather than unrestricted strings.
+### 4.4 Related entities owned elsewhere
 
-### 4.3 Lifecycle configuration
+- `Plan` and lifecycle options: M3.
+- `Product`, `ProductVariant`, and product tax association: M2/M9.
+- `PaymentTerm`: M9.
+- `Invoice`, `InvoiceLine`, `BillingRun`: M5.
+- `Payment` and payment-provider boundary: M7.
+- `Discount` and `DiscountRedemption`: M6.
+- `AuditLog` and notification/email log: shared system entities.
 
-Lifecycle settings are plan-level permissions/capabilities. They determine which subscription operations may be offered, subject to the subscription's current state and the rest of the M4 state machine.
+M4 should use foreign keys and shared services rather than copy or reimplement those modules' administration responsibilities.
 
-| Option | Meaning in M3 | Related workflow |
+---
+
+## 5. Quotation template management
+
+### 5.1 Template list
+
+Admin-only management screen should provide:
+
+- Template name.
+- Associated Plan.
+- Validity period in days.
+- Product-line summary/count.
+- Search, pagination, and useful sorting.
+- Create and edit actions.
+
+The source specifies create and edit. It does not specify archive/delete behavior, template versioning, or whether an existing template can be deleted after use. Do not add destructive behavior without a product decision.
+
+### 5.2 Create/edit template form
+
+Capture:
+
+- Template name.
+- Plan selection.
+- Validity period in days.
+- One or more predefined product lines.
+
+Use searchable selects for long product/plan lists. Validate all values server-side. Display calculated line previews using server-calculated decimal values. If product or plan availability is date-dependent, validate against the selected subscription start date when the template is used; M3 owns plan availability rules.
+
+### 5.3 Template permissions
+
+- Admin can create and edit templates.
+- Staff can select and use existing templates in subscription creation, but cannot manage them.
+- Customer cannot access template management or template selection.
+- Deny unauthorized direct URL/API/service calls, even if the UI hides the relevant controls.
+
+### 5.4 Template copy semantics
+
+When a template is selected:
+
+1. Read the template and its current plan/lines.
+2. Validate that the Plan is usable for the intended subscription start date.
+3. Copy the Plan reference and all configured lines into the new subscription context.
+4. Make the copied subscription lines independently editable.
+5. Save the subscription and its copied lines atomically.
+
+Editing a template later must not silently alter already-created subscriptions or quotations. Historical subscription commercial values must remain stable according to the subscription/invoice snapshot rules; exact snapshot boundaries should align with M5's invoice immutability requirements.
+
+---
+
+## 6. Subscription creation and management
+
+### 6.1 Create flow
+
+The UI/UX specification recommends this sequence:
+
+1. Select a Customer.
+2. Choose a Plan. Show only plans available for new subscriptions on the selected start date.
+3. Choose creation method: start blank or use a quotation template.
+4. Configure subscription lines: products, variants, quantities, and add-ons.
+5. Review pricing: unit prices, line amounts, taxes, and total.
+6. Set dates and payment terms.
+7. Save as Draft or create/send a Quotation, depending on the selected action.
+
+The system must validate the Plan's availability on the server; filtering options in the browser is not sufficient. M3 owns the availability configuration and lifecycle options.
+
+### 6.2 Subscription number generation
+
+- Generate subscription numbers sequentially.
+- A number must never be reused, including after deletion/closure or failed downstream operations.
+- Enforce uniqueness in PostgreSQL.
+- Use a database sequence or another concurrency-safe allocator. Do not calculate `MAX(number) + 1` without locking/atomic allocation.
+- Number allocation must remain safe under parallel Vercel function invocations.
+- Decide the display format/prefix separately; the requirements specify sequential uniqueness, not a literal format.
+
+### 6.3 Subscription detail
+
+Header:
+- Subscription number.
+- Customer.
+- Plan.
+- Current status.
+- Separate `payment_failed` warning when applicable.
+
+Suggested sections:
+- **Overview:** start date, expiry date, renewal mode, payment terms, next billing date.
+- **Subscription lines:** products, variants, quantities, prices, taxes, and add-ons.
+- **Billing history:** linked invoices.
+- **Activity history:** status changes and other audited actions.
+
+Every team member with internal subscription access must be able to see the current status (FR-4.6).
+
+### 6.4 Subscription list
+
+Recommended columns and filters from the UI/UX specification:
+
+- Subscription number.
+- Customer.
+- Plan.
+- Status.
+- Start/expiry or next billing information where useful.
+- Renewal mode.
+- Payment-failed indicator.
+
+Filters:
+- Customer.
+- Plan.
+- Status.
+- Renewal mode.
+- Payment-failed flag.
+
+Search:
+- Subscription number.
+- Customer name or email.
+
+Use pagination/server-side filtering. Avoid N+1 queries with `select_related` and `prefetch_related`.
+
+### 6.5 Editing subscription data
+
+The source allows copied lines to be editable and defines live quantity/plan/add-on changes. It does not fully specify unrestricted editing of every field after quotation or activation. Restrict editable fields according to the current state and lifecycle workflow; do not permit direct mutation of status, totals, or protected fields through arbitrary form payloads.
+
+---
+
+## 7. Lifecycle and state transitions
+
+### 7.1 Canonical lifecycle
+
+The requirements define the main workflow:
+
+`Draft → Quotation → Confirmed → Active → Closed`
+
+Paused is an additional lifecycle state connected to Active. `payment_failed` is a separate flag, not a replacement lifecycle status.
+
+| From | To | Trigger | Validation / behavior |
+|---|---|---|---|
+| Draft | Quotation | Admin/Staff sends quotation | Calculate/persist validity deadline; send quotation through email boundary; record transition. |
+| Quotation | Confirmed | Customer accepts in portal | Must be customer's own quote and not expired; transition atomically. |
+| Quotation | Closed | Quotation expires or is declined | Scheduled expiry or permitted decline operation; preserve history. |
+| Confirmed | Active | Start date reached (current assumption) | Use shared transition service; activation on first payment remains an alternative only if Open Item H changes. |
+| Active | Paused | Customer/Staff pauses, if Plan allows; may also occur after grace period | Exclude from billing while paused. |
+| Paused | Active | Resume | Recalculate next billing date and resume eligibility. |
+| Active / Paused | Closed | Cancel, close early, plan end date/auto-close, or final renewal failure | Validate role, state, and relevant Plan lifecycle option. |
+
+### 7.2 Centralized transition service
+
+All subscription state changes must pass through one service function (for example, `transition_subscription(subscription, to_status, actor, ...)`). The exact name may follow repository conventions.
+
+The transition service must:
+
+1. Load/lock the subscription as needed (`select_for_update`).
+2. Check actor authorization and customer ownership.
+3. Check the current status and the allowed transition table.
+4. Check the relevant Plan lifecycle option (M3) for customer-triggered or plan-governed actions.
+5. Apply state-specific side effects, such as billing exclusion or next-date recalculation.
+6. Persist the change inside `transaction.atomic()`.
+7. Write an `AuditLog` entry with actor/system identity, from-status, to-status, and timestamp.
+8. Raise a domain exception for invalid transitions; views convert it to a safe user-facing response.
+
+Never assign `subscription.status` directly in views, forms, tasks, or unrelated modules.
+
+### 7.3 `payment_failed` flag
+
+- Set when automatic renewal collection fails or payment is not received by the due date, as specified by FR-4.8.
+- Display independently from the lifecycle status.
+- Clear when payment succeeds/is recorded according to the payment workflow.
+- Do not imply that the subscription is Paused or Closed unless its actual status has transitioned.
+- Show the next step or grace-period state when available.
+
+### 7.4 Plan lifecycle options
+
+M3 stores Plan lifecycle settings; M4 enforces them. For each customer action, validate:
+
+- Pause option before pausing.
+- Resume option/valid state according to the Plan configuration and transition rules.
+- Cancel/close-early option before early closure.
+- Renew option and renewal mode before renewal.
+- Upgrade/downgrade and quantity-change permissions before applying those changes.
+
+The requirements use lifecycle options as the permission gate but do not fully enumerate the exact option names for every portal action. Match the actual M3 model and confirm any missing option mapping; do not invent additional Plan flags.
+
+---
+
+## 8. Quotation lifecycle and acceptance
+
+### 8.1 Sending a quotation
+
+- Admin/Staff can send a quotation from a Draft subscription.
+- Set the quotation validity period from the selected template's `validity_days` (or another explicitly approved source when no template is used).
+- Persist a deterministic `valid_until` value so acceptance and expiry jobs use the same deadline.
+- Send the quotation email through the project's email boundary.
+- Record send/transition activity and visible delivery state where available.
+- Email failure must not silently lose the business record or roll back unrelated committed data; log and mark for retry under the shared email pattern.
+
+The requirements define template validity days but do not specify the default validity period for quotations created without a template. Treat that as an open decision.
+
+### 8.2 Customer acceptance
+
+1. Customer opens their own quotation in the portal.
+2. System displays lines, Plan, dates, totals, and validity deadline.
+3. Acceptance is available only while the quotation is valid.
+4. On acceptance, server rechecks ownership, current status, and expiry.
+5. Transition Quotation → Confirmed atomically and audit it.
+6. Display confirmation and scheduled start date.
+
+Do not rely on a disabled browser button as the expiry check. A crafted request after expiry must be rejected.
+
+### 8.3 Expiry and decline
+
+- An expired quotation cannot be accepted (FR-4.11 / BR-11).
+- State machine defines Quotation → Closed when expired or declined.
+- Quote expiry is a scheduled task under the coding standards' Vercel Cron approach.
+- Expiry processing must be idempotent: repeated or overlapping runs must not duplicate transition/audit effects.
+- Decline action details and whether Customers have a dedicated decline control are not fully specified; confirm before implementing beyond the state-machine behavior.
+
+### 8.4 Quotation list and detail UX
+
+Quotation list recommended columns:
+- Quotation/subscription number.
+- Customer.
+- Plan.
+- Created date.
+- Valid until.
+- Status: awaiting response, accepted, expired, declined.
+
+Quotation detail should show:
+- Customer and Plan.
+- Subscription/product lines and pricing breakdown.
+- Created date and validity deadline.
+- Current quotation status.
+- Accept action for the owning Customer while valid.
+- Internal send/monitoring actions for Admin/Staff.
+
+Expired quotations show the expiry date and disabled acceptance. Status must be represented with text, not color alone.
+
+---
+
+## 9. Renewal behavior
+
+### 9.1 Renewal mode source
+
+Plan M3 defines `renewal_mode` as `automatic` or `manual`, and a distinct lifecycle option determines whether renewal is permitted at all. M4 must honor both:
+
+- `allow_renew` (or the corresponding Plan lifecycle option) controls whether renewal is allowed.
+- `renewal_mode` controls how renewal is initiated.
+
+Automatic mode must not override a disabled Renew option.
+
+### 9.2 Automatic renewal
+
+FR-4.8 requires the system to:
+
+1. Identify an eligible subscription configured for automatic renewal.
+2. Generate the renewal invoice through M5's billing/invoice services.
+3. Attempt collection through M7's payment-provider boundary.
+4. If payment fails or is not received by the invoice due date, set `payment_failed`.
+5. Email the Customer.
+6. Notify Staff.
+7. Apply the configured grace-period/retry rule.
+8. After the final failure, pause or close according to the configured rule.
+
+The coding standards specifically require automatic-renewal failures to follow this behavior and never fail silently. Email failures must be logged/retried without rolling back the business transaction.
+
+### 9.3 Manual renewal
+
+- Customer or Staff opens an eligible subscription and selects Renew.
+- Validate that the Plan permits renewal, the mode is manual, the actor is authorized, and the current state permits the operation.
+- Start the renewal/invoice flow using M5 services.
+- Show the updated status and next step.
+
+The requirements specify the trigger but do not fully define the detailed manual-renewal sequence, whether renewal creates a new subscription record or extends the existing record, or exactly when the new term begins. These are product decisions; do not silently choose a data model that makes them irreversible.
+
+### 9.4 Grace period, retries, and final action
+
+The requirements' Open Item C contains a working assumption:
+
+- Reminders at 1, 7, and 14 days past due.
+- Then automatically pause.
+
+Other text describes retry N times and then pause or close, and the UI/UX says the final action remains configurable/open. Therefore:
+
+- Keep retry count, timing, and final action configurable rather than hard-coded into UI copy.
+- Treat 1/7/14 days and auto-pause as provisional working assumptions until confirmed.
+- Ensure notification and lifecycle effects are idempotent to avoid duplicate emails or repeated state transitions.
+
+---
+
+## 10. Pause, resume, cancellation, and closure
+
+### 10.1 Pause
+
+- Pause only when the Plan permits it and the transition is valid.
+- Explain before confirmation that a paused subscription is excluded from billing runs.
+- Transition to Paused through the shared state service.
+- Record actor and timestamp.
+- M5 billing selection must exclude Paused subscriptions (BR-6 / FR-4.10).
+
+### 10.2 Resume
+
+- Resume only from Paused and when allowed by the Plan/workflow.
+- Recalculate and persist the next billing date.
+- The backend calculation is authoritative; show the updated schedule to the user.
+- Use the agreed proration/date calculation helpers rather than browser-only calculations.
+
+The exact formula for recalculating next billing date after a pause is not specified in the source documents and requires confirmation with the billing-period rules.
+
+### 10.3 Cancel / close
+
+- Customer-facing cancellation is subject to the Plan's lifecycle option.
+- Internal Admin/Staff actions must also obey valid state transitions and role permissions.
+- Closed is terminal in the documented state machine; display history read-only.
+- Do not conflate cancellation/early close with expiry of a quotation.
+- Exact effective date, immediate-vs-end-of-period cancellation, and any refund behavior are not specified; do not invent them.
+
+---
+
+## 11. Add-ons, plan changes, quantity changes, and proration
+
+### 11.1 Add-ons
+
+- Add-ons are represented as SubscriptionLine records (FR-4.12).
+- A permitted add-on can be added or removed during the subscription's life.
+- Validate product eligibility and any relevant Plan/lifecycle permission on the server.
+- Recalculate subscription pricing using server-side decimal arithmetic.
+- Persist the change and its effective date/history so the next invoice can apply the correct adjustment.
+
+The source does not fully define whether every product can be an add-on, whether variant selection is mandatory, or whether add-on changes require approval. Follow existing catalog/product rules and record unresolved policy decisions.
+
+### 11.2 Upgrade/downgrade and quantity changes
+
+- Show current and proposed configurations side by side.
+- Preview the expected prorated charge or credit where possible.
+- Explain that the adjustment is applied to the next invoice.
+- Require confirmation before applying a change.
+- Validate Plan lifecycle options and current state.
+- Persist the change and proration detail for M5 to consume.
+
+Do not promise an immediate refund. The requirements' working assumption is that downgrade credits are applied to the next invoice.
+
+### 11.3 Proration calculation
+
+FR-4.13 requires mid-cycle changes to quantity, plan, or add-ons to produce a prorated charge or credit on the next invoice.
+
+Current working assumptions from `REQUIREMENTS.md`:
+
+- Daily-basis proration (Open Item K).
+- Downgrade credit is applied to the next invoice.
+- Tax and proration rounding is per line, two decimal places, half-up (Open Item J).
+
+Implementation requirements:
+
+- Use `Decimal` and shared money/rounding helpers; never float.
+- Keep the calculation in a server-side service, not browser-only JavaScript.
+- Record enough detail for the next invoice to explain the adjustment (change type, effective date, remaining/elapsed period basis, charge/credit amount, related subscription/line).
+- Apply the adjustment on the next invoice via M5's established invoice-generation path.
+- Avoid applying the same adjustment twice if a billing job is retried.
+- Add tests for mid-cycle upgrade, downgrade, quantity increase/decrease, add-on addition/removal, date boundaries, and rounding.
+
+The exact day-count convention (inclusive/exclusive boundaries, timezone/date basis, treatment of leap days, and partial first/last days) is not specified. Confirm before treating the calculation as final.
+
+---
+
+## 12. Validation rules
+
+| Area | Required validation |
+|---|---|
+| Template name | Required; reject blank/whitespace-only values. |
+| Template Plan | Must reference an existing valid Plan. |
+| Validity days | Positive integer unless product confirms a different rule. |
+| Template lines | At least the required configured product lines; each Product reference must be valid. Exact minimum line count is not explicit and should be confirmed. |
+| Customer | Required; exactly one Customer per Subscription. |
+| Plan | Required; exactly one Plan per Subscription; validate availability on selected start date. |
+| Dates | Start date and expiry date required; enforce any confirmed ordering/Plan-boundary rules. |
+| Payment terms | Must reference an existing configured PaymentTerm. |
+| Subscription number | Generated by server; unique; never reused. Ignore client-supplied number. |
+| Quantity | Positive; exact numeric precision must follow agreed product rules. |
+| Unit price | Server-authoritative Decimal; do not trust client-submitted price. |
+| Tax | Source from the Product's configured tax; do not accept an arbitrary client tax rate. |
+| Line amount/total | Recalculate server-side using Decimal and shared rounding policy. |
+| Quote acceptance | Must belong to current Customer, remain in Quotation state, and not be expired. |
+| Lifecycle action | Actor authorized; valid current-state transition; Plan option permits action. |
+| Renewal | Renewal permitted by Plan; renewal mode matches selected flow; subscription eligible. |
+| Pause | Valid state and Plan option; paused records excluded from billing. |
+| Resume | Valid Paused state; recalculate next billing date. |
+| Add-on/change | Validate product/Plan eligibility, state, permissions, and effective date. |
+| Proration | Server-calculated Decimal; adjustment recorded once and consumed once by next invoice. |
+
+---
+
+## 13. UI/UX behavior
+
+### 13.1 Navigation and page layout
+
+- Internal app uses persistent left sidebar on desktop, compact header, and main content; collapse sidebar into a navigation drawer on smaller screens.
+- Internal navigation includes Subscriptions and Quotations for Admin/Staff.
+- Quotation Templates management is Admin-only.
+- Customer portal uses simplified navigation: Overview, My subscriptions, My quotations, My invoices, Account/security.
+- Use tables for operational lists and cards for high-level metrics; preserve filters when returning from detail where feasible.
+- Provide loading, empty, error, and success states.
+
+### 13.2 Status presentation
+
+Use readable text labels and do not communicate state by color alone.
+
+| Record | Status / flag | Presentation |
 |---|---|---|
-| Auto-close at end date | The plan enables scheduler-driven closure after its end date passes. | M3 scheduled operation and M4 subscription state. |
-| Close early | Early closure is permitted for a subscription using the plan. | M4 subscription lifecycle. |
-| Pause | Pausing is permitted for a subscription using the plan. | M4 pause/resume and M5 billing exclusion. |
-| Renew | Renewal is permitted for a subscription using the plan. | M4 renewal flow; behavior also depends on `renewal_mode`. |
+| Subscription | Draft | Not yet sent; edit/send quotation actions where allowed. |
+| Subscription | Quotation | Awaiting customer response; show expiry. |
+| Subscription | Confirmed | Accepted; awaiting start date. |
+| Subscription | Active | Active subscription; show permitted management actions. |
+| Subscription | Paused | Billing paused; show resume action if allowed. |
+| Subscription | Closed | Closed/terminal; read-only history. |
+| Subscription | `payment_failed` | Separate prominent warning; not a lifecycle status. |
+| Quotation | Valid / expired / declined | Show validity date and acceptance availability. |
 
-Do not assume that `allow_close_early` is identical to `auto_close_at_end_date`. They represent separate options: one permits an early close action, while the other enables a scheduled close when the plan end date passes.
+Suggested semantic colors from the UI/UX source may be used, but always pair color with text and accessible contrast.
 
-### 4.4 Monetary representation
+### 13.3 Forms and feedback
 
-- Store `price` in a Django `DecimalField` with precision consistent with the project standards (the coding standards give `max_digits=12, decimal_places=2` as an example).
-- Never use Python `float` for plan prices or calculations.
-- Parse and validate submitted monetary values as decimals.
-- Use the project's shared money-rounding helper when a calculation requires rounding.
-- Currency is currently assumed to be a single system-wide currency; multi-currency support is not part of M3.
+- Group fields by purpose and mark required fields.
+- Show field-level validation and preserve valid input after errors.
+- Use searchable selects for Customers, Products, and Plans.
+- Show calculated values as read-only previews where appropriate.
+- Display money with configured currency and two decimal places; currency is not specified in the source.
+- Destructive actions require confirmation.
+- No silent failures: saves, sends, renewals, and lifecycle actions must return visible outcomes.
 
-### 4.5 Relationships
+### 13.4 Subscription lifecycle UX
 
-- A `Plan` can be referenced by subscriptions. Each subscription has exactly one plan (BR-3).
-- A plan may be referenced by quotation templates under M4.
-- M3 must not create duplicate Product, Tax, PaymentTerm, Subscription, or QuotationTemplate entities.
-- Plan deletion/archival behavior when existing subscriptions or templates reference it is not fully specified. See Open Decisions.
+- Draft: Edit and send quotation.
+- Quotation: Customer can accept while valid; show expiry.
+- Confirmed: Show scheduled start date.
+- Active: Show only Plan-permitted actions valid in the current state.
+- Paused: Explain billing is stopped; show resume where allowed.
+- Closed: Read-only history.
+- Payment failure: Show warning and next step/grace-period state when available.
 
----
+### 13.5 Change preview UX
 
-## 5. Plan management UI/UX
+For upgrade/downgrade, quantity, and add-on changes:
 
-**Audience:** Admin only.
-
-### 5.1 Plan list
-
-The plan list should display the following columns, as specified in `UI_UX.md`:
-
-| Column | Display |
-|---|---|
-| Plan name | Name of the plan. |
-| Price | Formatted plan price. |
-| Billing period | Daily, weekly, monthly, or yearly. |
-| Minimum quantity | Configured minimum quantity. |
-| Availability window | Start and end dates. |
-| Renewal mode | Automatic or Manual. |
-| Lifecycle options | Clearly indicate which options are enabled. |
-| Status | Current plan status, if the application maintains one. The exact status model is an open decision. |
-
-Available actions:
-
-- Create plan.
-- Open plan details.
-- Edit plan.
-
-Do not add archive/delete actions as mandatory behavior: the M3 requirements do not explicitly define plan archival or deletion. If the existing application already has a general archive convention, confirm how it should apply to plans that are referenced by subscriptions before implementing it.
-
-### 5.2 Plan create/edit form
-
-The form must include:
-
-1. Name.
-2. Price.
-3. Billing period selector with Daily, Weekly, Monthly, and Yearly.
-4. Minimum quantity.
-5. Availability start date.
-6. Availability end date.
-7. Renewal mode selector with Automatic and Manual.
-8. Lifecycle options:
-   - Auto-close at end date.
-   - Close early.
-   - Pause.
-   - Renew.
-
-Each lifecycle option must be configurable independently for the plan. The form should make it clear that these settings control actions on subscriptions using the plan.
-
-### 5.3 Form behavior
-
-- Show field-level validation errors.
-- Preserve entered values after recoverable validation errors.
-- Do not silently replace invalid or missing values with defaults unless a default is explicitly approved.
-- Require confirmation for consequential changes if the application design uses confirmation for such actions.
-- Display a clear success or error state after save.
-- Do not rely on client-side validation alone; the server is authoritative.
-
-### 5.4 Availability explanation
-
-The UI should explain that a plan is selectable for **new subscriptions only within its availability dates**.
-
-When a user selects a subscription start date in M4, the plan selector should show only plans available on that selected date. If an unavailable plan is requested through a direct or manipulated request, the backend must reject it.
-
-Existing subscriptions may continue to reference a plan outside its new-subscription availability window. The source UI/UX document explicitly notes that precise edit/archive behavior for plans already in use requires confirmation. Do not automatically invalidate existing subscriptions merely because the plan is no longer available for new subscriptions.
-
-### 5.5 Lifecycle options in downstream UI
-
-M4 should use the plan configuration when deciding which subscription actions to display or permit. The UI may hide or disable unavailable actions and explain that the plan does not permit the action. The backend must enforce the same rule.
-
-The lifecycle configuration does not replace validation of the subscription state machine. For example, an enabled Pause option does not mean every subscription state can be paused; only valid transitions are allowed.
+- Present current vs proposed configuration.
+- Preview expected charge/credit where possible.
+- Explain next-invoice application.
+- Require confirmation.
+- Make clear that the server's final proration amount is authoritative.
 
 ---
 
-## 6. Core business logic
+## 14. Architecture and implementation guidance
 
-### 6.1 Create plan
+### 14.1 Architectural constraints
 
-Expected flow:
+Follow the coding standards:
 
-1. Admin opens Plan Management.
-2. Admin selects Create Plan.
-3. System displays the plan form.
-4. Admin enters the required plan details.
-5. Admin chooses a billing period.
-6. Admin sets the minimum quantity and availability dates.
-7. Admin selects automatic or manual renewal.
-8. Admin configures each lifecycle option.
-9. Server validates all fields and permission.
-10. System persists the plan.
-11. System records the relevant Admin action through the existing audit mechanism.
-12. UI returns a success response and displays the created plan.
+- Django modular monolith backed by PostgreSQL.
+- Server-rendered templates with small targeted JavaScript (HTMX/Alpine if already used); do not introduce a SPA without a requirement.
+- PostgreSQL is the source of truth.
+- Keep views thin; business writes in services; complex reads in selectors.
+- Use Django ORM and database constraints; no formatted raw SQL.
+- No microservices, generic event bus, message queue, Celery worker, or in-process scheduler.
+- Use Vercel Cron for scheduled task invocation through protected endpoints.
 
-The operation must not be available to Staff or Customers.
+### 14.2 Suggested app structure
 
-### 6.2 Edit plan
-
-Expected flow:
-
-1. Admin opens an existing plan.
-2. System loads the persisted plan configuration.
-3. Admin changes one or more editable fields.
-4. Server checks Admin permission and validates the complete resulting configuration.
-5. System saves the update.
-6. System records the actor, plan, operation, and timestamp using the shared audit approach.
-7. UI displays the updated plan.
-
-The requirements do not specify whether editing a plan changes existing subscriptions that reference it. Do not silently recalculate or rewrite existing subscription prices, invoices, or historical records. Confirm the intended policy before implementing such behavior.
-
-### 6.3 Determine plan availability
-
-A plan may be selected for a new subscription only when the proposed subscription start date falls within the plan's availability window.
-
-Conceptual rule:
+Adapt to the repository's existing layout; do not duplicate equivalent files.
 
 ```text
-is_available_for_new_subscription(plan, start_date):
-    return plan.availability_start_date <= start_date
-       and start_date <= plan.availability_end_date
-```
-
-This inclusive-boundary expression reflects the ordinary meaning of start/end dates, but the requirements do not explicitly state boundary inclusivity or whether either date may be omitted. Confirm these details before treating the expression as final business policy.
-
-Availability validation must happen on the server, not only in the plan selector UI.
-
-### 6.4 Lifecycle permission checks
-
-When a subscription action is requested, the application must check:
-
-1. The actor's role and ownership/authorization rules.
-2. The subscription's current state and whether the requested transition is valid.
-3. The relevant lifecycle option on the subscription's plan.
-4. Any additional requirement-specific conditions for that operation.
-
-For example:
-
-- Pause requires the plan's Pause option and a valid transition to Paused.
-- Early close requires the plan's Close early option and a valid transition to Closed.
-- Renewal requires the plan's Renew option and the applicable renewal-mode flow.
-- Scheduled auto-close requires the plan's Auto-close at end date option and a passed end date.
-
-M3 stores and exposes these settings; M4 owns the subscription transition workflows.
-
-### 6.5 Automatic versus manual renewal mode
-
-`renewal_mode` must be one of:
-
-- `automatic`: the subscription follows the automatic-renewal flow defined in M4, including renewal invoice generation and payment collection behavior.
-- `manual`: the customer or Staff triggers renewal as described in M4.
-
-The plan's `allow_renew` lifecycle option and `renewal_mode` are distinct settings. The first controls whether renewal is permitted; the second controls how the renewal is initiated. Do not infer that setting `renewal_mode=automatic` alone overrides a disabled Renew option. The combined rule should be enforced consistently and clarified in the product decision log if necessary.
-
-### 6.6 Scheduled auto-close
-
-FR-3.6 requires a scheduler to close subscriptions using plans configured for auto-close after the plan end date passes.
-
-The scheduled operation should:
-
-1. Run through the project's approved scheduler mechanism.
-2. Identify plans with auto-close enabled and an end date that has passed.
-3. Identify subscriptions associated with those plans that are eligible for the close transition.
-4. Transition each eligible subscription to Closed using the M4 subscription lifecycle service/state machine, rather than assigning status directly.
-5. Record the actor/system identity and transition timestamp using the existing audit mechanism.
-6. Be safe to run more than once; already-closed subscriptions must not be processed as new transitions.
-7. Log failures and continue processing other eligible subscriptions where the existing job conventions permit per-record isolation.
-
-The coding standards specify Vercel Cron calling protected endpoints that invoke task entry points. They prohibit relying on long-running in-process schedulers or persistent local filesystem state. Follow the project's actual deployment conventions.
-
-M3 must not invent a new scheduler framework or add Celery/another worker system unless the project requirements and deployment architecture are explicitly changed.
-
-### 6.7 Scheduled job idempotency and safety
-
-- A repeated scheduler invocation must not create duplicate transitions or duplicate audit events for a subscription already closed.
-- The operation should use the shared transition service and its validation rules.
-- Use database transactions for multi-step writes.
-- If concurrent executions are possible, use the project's established locking/claiming strategy so two invocations do not race to transition the same subscription.
-- Log execution outcome and per-record failures in the project's existing operational logging/job-result pattern, if present.
-- The exact schedule frequency is not specified by the source documents and must be configured/confirmed separately.
-
----
-
-## 7. Validation rules
-
-The following table separates required validation from details that remain unspecified.
-
-| Field / operation | Validation |
-|---|---|
-| Name | Required; reject blank or whitespace-only values. |
-| Price | Required decimal value; reject malformed values and values outside the agreed decimal precision. |
-| Billing period | Required; accept only `daily`, `weekly`, `monthly`, or `yearly`. |
-| Minimum quantity | Required; validate as a quantity and reject values that violate the chosen positive-integer rule. The source calls it a minimum quantity but does not explicitly define whether zero is allowed. |
-| Availability start date | Required or optional according to the final interpretation of the source field; validate as a date. |
-| Availability end date | Required or optional according to the final interpretation of the source field; validate as a date. |
-| Availability window | If both dates are present, reject an end date earlier than the start date. |
-| Renewal mode | Required; accept only `automatic` or `manual`. |
-| Lifecycle options | Persist explicit boolean values; do not accept arbitrary client-supplied option names. |
-| Plan selection | Reject a new subscription if its selected start date is outside the plan's availability window. |
-| Lifecycle action | Reject if the plan option is disabled, the actor lacks permission, or the state transition is invalid. |
-| Scheduled auto-close | Process only plans with auto-close enabled whose end date has passed; do not repeat a completed close transition. |
-
-### 7.1 Validation details not specified by the source
-
-The requirements do not define:
-
-- Whether price may be zero or negative.
-- Whether minimum quantity must be at least 1 or may be zero.
-- Whether availability start and end dates are mandatory or can be open-ended.
-- Whether the start and end dates are inclusive.
-- Whether a plan can have an end date without a start date, or vice versa.
-- Whether duplicate plan names are allowed.
-- Maximum plan-name length.
-- Whether a plan can be deleted or archived.
-- Whether a plan's price or configuration may be edited after it is used by subscriptions.
-- The exact recurrence/calendar calculation for daily, weekly, monthly, and yearly periods.
-- The exact scheduler frequency/time zone.
-
-These must be treated as open decisions rather than silently resolved in implementation.
-
----
-
-## 8. Integration with other modules
-
-### 8.1 M2 — Product Catalog
-
-M2 manages sellable products and variants. M3 manages plans. Do not duplicate product fields or product CRUD in the Plan model.
-
-### 8.2 M4 — Quotation Templates and Subscriptions
-
-M4 is the primary consumer of plan data:
-
-- A subscription references exactly one plan.
-- A quotation template references a plan.
-- New subscription creation must offer only plans available on the selected start date.
-- Subscription lifecycle actions must respect the plan's lifecycle options.
-- Renewal behavior must respect `renewal_mode` and the enabled Renew option.
-- Subscription closure at the plan end date must use the subscription state-transition mechanism.
-
-### 8.3 M5 — Invoicing and Billing
-
-M5 uses subscription billing dates and the subscription's plan context. M3 supplies the billing period and plan configuration, but does not generate invoices or run billing calculations.
-
-Paused subscriptions are excluded from billing under FR-4.10 and BR-6; that behavior belongs to the subscription/billing integration, not to a separate plan-side billing process.
-
-### 8.4 M7 — Payments
-
-Automatic renewal may invoke the payment-provider flow defined in M7. M3 stores the renewal mode but does not implement payment collection or gateway behavior.
-
-### 8.5 M8 — Reporting and Dashboard
-
-Plan data may be used by reports or filters if required by M8. M3 does not define dashboard metrics or reporting calculations.
-
----
-
-## 9. Architecture and implementation guidance
-
-The coding standards define a Django modular monolith backed by PostgreSQL. Follow the existing repository structure and avoid introducing a separate service or microservice for plans.
-
-### 9.1 Suggested app location
-
-The coding standards place plans in `apps/plans/`.
-
-Suggested structure, adapted to the actual repository:
-
-```text
-apps/plans/
-├── models.py          # Plan fields, choices, constraints, simple properties
-├── services.py        # create/update plan operations and plan-specific writes
-├── selectors.py       # plan list/detail and availability queries
-├── views.py           # thin request handlers
-├── forms.py           # server-side form validation
+apps/subscriptions/
+├── models.py          # Subscription, SubscriptionLine, lifecycle enums
+├── services.py        # creation, template copy, transitions, renewal, changes
+├── selectors.py       # subscription/quotation list and detail queries
+├── forms.py           # server-side validation
 ├── permissions.py     # only if shared permission layer does not cover it
+├── tasks.py           # quote expiry and renewal task entry points
+├── views.py           # thin request handlers
 ├── urls.py
 ├── admin.py
-├── tasks.py           # scheduled auto-close entry point, calling lifecycle services
 ├── tests/
 └── migrations/
+
+apps/quotations/       # only if repository/module boundaries justify a separate app
+├── models.py          # QuotationTemplate and template-line model
+├── services.py        # template create/update and copy operations
+├── selectors.py
+├── forms.py
+├── views.py
+├── urls.py
+└── tests/
 ```
 
-Do not create duplicate files if the project already has equivalent modules. If the existing repository places Plan in another app, follow the existing architecture rather than moving code solely to match this illustrative tree.
+The exact app split is not prescribed by the source documents. Prefer the repository's existing modular boundaries and avoid splitting apps without a concrete benefit.
 
-### 9.2 Model responsibilities
+### 14.3 Service boundaries
 
-- Store plan fields and lifecycle settings.
-- Define constrained choices for billing period and renewal mode.
-- Use `DecimalField` for price.
-- Add database constraints for clear invariants where appropriate.
-- Keep models free of email, payment, scheduler, or other external side effects.
-- Do not put multi-step lifecycle transitions in model `save()` methods.
+Suggested focused service responsibilities (names illustrative, not mandatory):
 
-### 9.3 Service responsibilities
+- `create_quotation_template(...)`
+- `update_quotation_template(...)`
+- `create_subscription_from_template(...)`
+- `create_subscription(...)`
+- `send_quotation(...)`
+- `accept_quotation(...)`
+- `expire_quotations(...)`
+- `transition_subscription(...)`
+- `pause_subscription(...)`
+- `resume_subscription(...)`
+- `renew_subscription(...)`
+- `apply_subscription_change(...)`
+- `calculate_proration(...)`
+- `process_automatic_renewals(...)`
 
-Write operations belong in services. Suggested service operations include:
+Do not create thin wrappers that add no policy or reuse. Keep the number of parameters and function length manageable, consistent with coding standards.
 
-- `create_plan(...)`
-- `update_plan(...)`
-- `is_plan_available_for_start_date(plan, start_date)`
-- `get_enabled_lifecycle_options(plan)`
+### 14.4 Transactions and concurrency
 
-The names are illustrative, not mandatory public APIs. Match repository conventions and avoid unnecessary abstractions.
+Use `transaction.atomic()` for multi-record writes, including:
 
-Subscription state changes must go through the M4 subscription transition service. The plan app should not directly assign `subscription.status` or duplicate the subscription state machine.
+- Creating a subscription and copying template lines.
+- Sending a quotation and recording its state/validity metadata.
+- Accepting a quotation and transitioning it to Confirmed.
+- Applying plan/quantity/add-on changes and recording proration adjustments.
+- Processing renewal state and its related records where transaction boundaries permit.
 
-Wrap multi-step writes in `transaction.atomic()`.
+Use `select_for_update()` when concurrent requests/jobs could update the same subscription or quotation. Enforce uniqueness at the database level, not only with pre-checks.
 
-### 9.4 Selector responsibilities
+### 14.5 Scheduled jobs
 
-Use selectors for non-trivial reads, such as:
+Coding standards specify Vercel Cron calling protected endpoints that invoke `tasks.py` entry points for quote expiry and renewals.
 
-- Admin plan list with pagination.
-- Plan detail with the relevant configuration.
-- Plans available for a proposed subscription start date.
-- Plans whose end dates have passed and auto-close is enabled, where this query is owned by the plan app.
+- Protect cron endpoints with a secret (for example, `CRON_SECRET` header check); never expose publicly callable job endpoints.
+- Jobs must be idempotent and safe for overlapping/repeated invocations.
+- Keep each invocation within serverless execution limits; batch/resume long work if needed.
+- Do not use a permanent in-process scheduler or local filesystem state.
+- Log job outcomes and per-record failures with useful IDs, not secrets or unnecessary personal data.
+- Do not send duplicate customer emails when a job is retried.
 
-Use appropriate `select_related`/`prefetch_related` when relations are needed. Avoid N+1 queries and speculative indexes.
+### 14.6 Integration contracts
 
-### 9.5 Task/scheduler responsibilities
+| Module | M4 integration |
+|---|---|
+| M1 Authentication/User Management | Resolve actor role and current Customer identity; enforce role checks and customer ownership. |
+| M2 Product Catalog | Select valid Products/Variants; use product price and associated tax as source inputs. |
+| M3 Plans | Select Plan; validate availability, lifecycle options, billing period, and renewal mode. |
+| M5 Invoicing | Provide due subscriptions, line snapshots, proration adjustments, and renewal invoice requests through M5 services. M5 owns invoice records and billing runs. |
+| M6 Discounts | Do not manage discount rules; provide subscription context for applicable discounts to be handled by M5/M6. |
+| M7 Payments | Automatic renewal collection uses payment-provider boundary; payment state remains M7-owned. |
+| M9 Taxes/Payment Terms | Reference configured tax through Product and configured PaymentTerm; do not duplicate configuration CRUD. |
+| Shared email/scheduler | Use replaceable email boundary and protected Vercel Cron task entry points. |
 
-- Expose a protected task entry point for scheduled auto-close.
-- Keep the task thin: identify eligible records and call the shared subscription transition service.
-- Make it idempotent and safe for overlapping/repeated invocations.
-- Follow the coding standards' Vercel Cron approach.
-- Do not run a permanent scheduler inside a serverless process.
-- Do not use local files or in-memory globals as persistent job state.
-
-### 9.6 Auditability
-
-Relevant Admin changes must integrate with the project's existing audit mechanism. At minimum, plan create/update actions should identify:
-
-- Actor.
-- Plan.
-- Operation performed.
-- Timestamp.
-
-The scheduler-driven subscription closure must be auditable through the existing subscription transition/audit mechanism. The source does not prescribe a separate plan audit schema or exact event names; reuse the shared approach.
-
-### 9.7 Database and migrations
+### 14.7 Database and query performance
 
 - PostgreSQL is the source of truth.
-- Every model change must include a migration.
-- Never edit an applied migration; create a new migration instead.
-- Run migrations as an explicit deployment step, not at request time.
-- Use database constraints for clear invariants that must survive concurrent requests.
-- Keep the application compatible with the project's Vercel/serverless deployment constraints.
-
-### 9.8 Dependencies
-
-- Prefer Django and the standard library.
-- Do not add a package for basic plan CRUD, date validation, or decimal handling.
-- Do not introduce a task queue or scheduler dependency without explicit approval and a demonstrated need consistent with the deployment standards.
+- Use `UniqueConstraint` for subscription number and any clearly defined unique business keys.
+- Add database constraints for clear invariants; do not rely only on forms.
+- Use `select_related`/`prefetch_related` and paginate list views.
+- Add indexes only for demonstrated query patterns; common subscription filters include status, customer, plan, and billing date.
+- Every model change ships with a migration. Never edit an applied migration.
+- Run migrations as an explicit deployment step, not during a request.
 
 ---
 
-## 10. Security and data integrity
+## 15. Security, auditability, and error handling
 
-- Plan management endpoints are Admin-only and protected server-side.
-- Staff and Customer cannot create or modify plans through direct requests.
-- Validate all submitted fields on the server.
-- Never trust a client-provided price, lifecycle permission, or renewal mode without authorization and validation.
-- Use Django ORM or parameterized SQL; never interpolate untrusted input into SQL.
-- Keep Django template auto-escaping enabled.
-- Apply CSRF protection to state-changing browser requests.
-- Use database transactions for multi-record operations.
-- Avoid exposing internal stack traces or sensitive data in error responses.
-- Keep plan price calculations in `Decimal`, never float.
-- Prevent invalid subscription transitions through the shared state machine.
-- Ensure scheduled auto-close cannot repeatedly close or corrupt already-closed subscriptions.
+### 15.1 Authorization and customer isolation
 
----
+- Enforce role permissions on every view and service.
+- Customer-facing queries must scope records to the authenticated Customer; never fetch by ID alone.
+- A Customer changing a URL/object ID must not access another Customer's quotation, subscription, lines, or activity.
+- Write/action endpoints must repeat ownership checks.
+- Unauthorized responses must not reveal whether another customer's record exists.
+- Hiding UI controls is not authorization.
 
-## 11. Acceptance criteria
+### 15.2 Input and financial integrity
 
-M3 is functionally acceptable when all applicable criteria below pass.
+- Validate all submitted fields with Django forms/serializers.
+- Never trust client-sent subscription number, status, price, tax rate, line amount, total, or proration result.
+- Use ORM/parameterized SQL only.
+- Keep Django template auto-escaping enabled; CSRF protection remains on for state-changing browser requests.
+- Use `DecimalField` and shared rounding helper; never float.
+- Use transactions and row locks for concurrent lifecycle/financial changes.
 
-### 11.1 Plan management
+### 15.3 Auditability
 
-- [ ] Admin can open Plan Management.
-- [ ] Admin can create a plan.
-- [ ] Admin can edit an existing plan.
-- [ ] The form captures name, price, billing period, minimum quantity, availability dates, renewal mode, and lifecycle options.
-- [ ] Billing period accepts only Daily, Weekly, Monthly, and Yearly.
-- [ ] Renewal mode accepts only Automatic and Manual.
-- [ ] Each lifecycle option can be configured independently per plan.
-- [ ] Saved values persist after reload.
-- [ ] Plan list shows the fields described in the UI/UX specification.
-- [ ] Validation errors are clear and preserve entered values where possible.
+Record at least:
 
-### 11.2 Permissions
+- Subscription lifecycle transition: actor/system identity, from status, to status, timestamp.
+- Template creation/edit: Admin actor, template, operation, timestamp.
+- Quotation send, acceptance, expiry, and decline where implemented.
+- Pause/resume/cancel/renew and plan/quantity/add-on changes.
+- Renewal failure and `payment_failed` set/clear events.
 
-- [ ] Admin can create and edit plans.
-- [ ] Staff cannot create or edit plans.
-- [ ] Customer cannot create or edit plans.
-- [ ] Direct requests to protected plan-management endpoints are denied for unauthorized roles.
-- [ ] Plan configuration is not writable through forged client-side role or permission values.
+Reuse the existing shared `AuditLog` mechanism; the source does not define a new M4-specific audit schema.
 
-### 11.3 Availability
+### 15.4 Error handling
 
-- [ ] A plan is available for a new subscription only within its configured availability dates.
-- [ ] The M4 plan selector filters plans for the selected subscription start date.
-- [ ] The server rejects a new subscription that references an unavailable plan.
-- [ ] Existing subscriptions are not automatically invalidated merely because the plan is outside its new-subscription availability window.
-
-### 11.4 Lifecycle configuration
-
-- [ ] Admin can enable or disable Auto-close at end date per plan.
-- [ ] Admin can enable or disable Close early per plan.
-- [ ] Admin can enable or disable Pause per plan.
-- [ ] Admin can enable or disable Renew per plan.
-- [ ] M4 action availability respects the plan configuration.
-- [ ] The backend rejects lifecycle actions disabled by the plan.
-- [ ] A disabled lifecycle option does not bypass the subscription state machine.
-
-### 11.5 Renewal mode
-
-- [ ] Every plan stores either `automatic` or `manual` as its renewal mode.
-- [ ] The selected mode is displayed in plan management.
-- [ ] M4 receives the plan's renewal mode and follows the appropriate renewal flow.
-- [ ] Renewal remains subject to the plan's Renew lifecycle option.
-
-### 11.6 Scheduled auto-close
-
-- [ ] A plan with auto-close disabled is not selected for automatic closure by this M3 task.
-- [ ] A plan with auto-close enabled and an end date that has passed is eligible for processing.
-- [ ] Eligible subscriptions are closed through the shared subscription transition service.
-- [ ] A plan whose end date has not passed does not trigger closure.
-- [ ] Already-closed subscriptions are not transitioned again.
-- [ ] Re-running the task does not create duplicate transitions or duplicate audit entries.
-- [ ] A failure for one subscription does not silently prevent other eligible records from being processed, subject to the established task error-handling pattern.
-- [ ] Task execution and failures are logged using the existing operational conventions.
-
-### 11.7 Quality
-
-- [ ] Loading, empty, success, validation, and error states are handled.
-- [ ] Consequential changes use confirmation where required by the shared UX conventions.
-- [ ] Keyboard navigation and visible focus states work.
-- [ ] Status and lifecycle state are not communicated by color alone.
-- [ ] Plan list queries are paginated where appropriate.
-- [ ] No N+1 query issue is introduced in the plan list/detail flows.
-- [ ] Migrations are present and pass the project's migration checks.
+- Define narrow domain exceptions for invalid transitions, expired quotations, disallowed Plan actions, unavailable Plan, and invalid renewal state where useful.
+- Catch the narrowest exception; never use bare `except:` or silently swallow exceptions.
+- Return friendly validation/permission messages; never expose stack traces or SQL details.
+- Use module-level Python loggers, not `print()`.
+- Log useful context such as subscription/quotation/customer IDs; do not log secrets or unnecessary personal data.
+- Email failures must not roll back committed business transactions; log and mark for retry.
+- A failed record in a scheduled batch should not prevent unrelated eligible records from being processed where per-record isolation is supported.
 
 ---
 
-## 12. Test plan
+## 16. Acceptance criteria
 
-Use `pytest`, `pytest-django`, and `factory-boy` as specified by the coding standards. Tests must not call real external services. Use `Decimal` for monetary assertions.
+M4 is acceptable only when all applicable criteria below are demonstrated.
 
-### 12.1 Model and field tests
+### 16.1 Quotation templates
 
-1. Create a plan with all valid required fields.
-2. Reject a blank plan name.
-3. Reject a malformed price.
-4. Verify price is stored and returned as a `Decimal`.
-5. Accept each supported billing period: daily, weekly, monthly, yearly.
-6. Reject an unsupported billing period.
-7. Accept `automatic` renewal mode.
-8. Accept `manual` renewal mode.
-9. Reject an unsupported renewal mode.
-10. Persist all four lifecycle option values independently.
-11. Verify date fields are stored correctly.
-12. Verify any implemented database constraints.
+- [ ] Admin can list, create, and edit quotation templates.
+- [ ] A template stores a Plan, predefined product lines, and validity period in days.
+- [ ] Blank template names and invalid validity values are rejected.
+- [ ] Staff can use an existing template during subscription creation.
+- [ ] Staff cannot create or edit templates through UI or direct requests.
+- [ ] Customers cannot access template management.
+- [ ] Editing a template does not mutate already-created subscriptions.
 
-### 12.2 Plan CRUD and permission tests
+### 16.2 Subscription creation and identity
 
-1. Admin can access the plan list.
-2. Admin can view plan details.
-3. Admin can create a plan.
-4. Admin can edit a plan.
-5. Staff cannot access plan create/update endpoints.
-6. Customer cannot access plan create/update endpoints.
-7. Anonymous users cannot access protected management endpoints.
-8. Direct URL/API requests enforce the same permissions as the UI.
-9. A forged role or lifecycle field does not grant additional privileges.
-10. Create/update actions integrate with the audit mechanism.
+- [ ] Admin and Staff can create a subscription for a selected Customer.
+- [ ] A subscription references exactly one Customer and one Plan.
+- [ ] Subscription stores number, start date, expiry date, and payment terms.
+- [ ] Creating from a template copies all configured lines.
+- [ ] Copied lines are editable independently of the template.
+- [ ] Plan availability is checked for the selected start date on the server.
+- [ ] Subscription number is sequential, unique, and never reused.
+- [ ] Concurrent creation cannot allocate duplicate subscription numbers.
 
-### 12.3 Availability tests
+### 16.3 Subscription lines and pricing
 
-1. A start date inside the availability window is accepted.
-2. A date before the availability start is rejected.
-3. A date after the availability end is rejected.
-4. The configured boundary dates behave according to the confirmed inclusive/exclusive policy.
-5. The M4 plan selector returns only plans available for the selected subscription start date.
-6. A manipulated request referencing an unavailable plan is rejected server-side.
-7. Existing subscriptions can still be read when their plan is outside its new-subscription availability window.
+- [ ] Each line stores Product, quantity, unit price, tax association/rate behavior, and amount.
+- [ ] Add-ons are represented as subscription lines.
+- [ ] Product tax is the source of tax; client-supplied tax is ignored/rejected.
+- [ ] Unit prices, amounts, and totals are server-calculated using Decimal.
+- [ ] Invalid products, quantities, and prices are rejected.
 
-### 12.4 Lifecycle option tests
+### 16.4 Lifecycle and status visibility
 
-1. Each option can be enabled independently.
-2. Each option can be disabled independently.
-3. A disabled Pause option blocks a pause request.
-4. An enabled Pause option still respects valid subscription-state transitions.
-5. A disabled Close early option blocks an early-close request.
-6. An enabled Close early option still respects the state machine.
-7. A disabled Renew option blocks renewal.
-8. An enabled Renew option allows the M4 renewal flow to proceed when other conditions pass.
-9. Auto-close is evaluated independently from Close early.
-10. Customer portal action permissions follow the plan settings.
+- [ ] Draft can transition to Quotation through the send action.
+- [ ] A valid quotation can transition to Confirmed through acceptance.
+- [ ] An expired quotation cannot be accepted.
+- [ ] Confirmed transitions to Active on start date under the current working assumption.
+- [ ] Active can transition to Paused only when permitted.
+- [ ] Paused can resume to Active and recalculates next billing date.
+- [ ] Valid closure paths transition Active/Paused to Closed.
+- [ ] Invalid transitions are rejected by the centralized service.
+- [ ] Every team member with subscription access sees current status.
+- [ ] `payment_failed` is displayed independently of lifecycle status.
+- [ ] Every transition is audited.
 
-### 12.5 Renewal mode tests
+### 16.5 Customer portal
 
-1. Automatic mode is persisted and exposed to M4.
-2. Manual mode is persisted and exposed to M4.
-3. Unsupported values are rejected.
-4. The renewal flow uses the configured mode.
-5. Renewal is blocked when the plan's Renew option is disabled, according to the agreed combined rule.
+- [ ] Customer can view only their own subscriptions and quotations.
+- [ ] Customer can accept only their own valid quotation.
+- [ ] Customer portal actions are available only when both state and Plan lifecycle options permit them.
+- [ ] Customer cannot change a URL/object identifier to view another customer's data.
+- [ ] Direct requests cannot bypass portal permission or Plan-option checks.
 
-### 12.6 Scheduler tests
+### 16.6 Renewal and pause behavior
 
-1. No auto-close processing for plans with the option disabled.
-2. No auto-close processing before the plan end date.
-3. Eligible subscriptions are closed after the end date passes.
-4. Closure is performed through the shared subscription transition service.
-5. Already-closed subscriptions are skipped.
-6. Repeated task invocation is idempotent.
-7. Concurrent/repeated invocations do not produce duplicate transitions.
-8. Each successful closure is auditable.
-9. A failed record is logged and other eligible records are handled according to the task's per-record error policy.
-10. The protected scheduled endpoint rejects unauthorized requests.
+- [ ] Automatic renewal creates/requests the renewal invoice through M5 and attempts collection through M7 boundary.
+- [ ] Failed/unpaid renewal sets `payment_failed`.
+- [ ] Customer email and Staff notification are triggered for renewal failure.
+- [ ] Retry/grace policy is applied according to configured/confirmed values.
+- [ ] Final failure pauses or closes according to the configured policy.
+- [ ] Manual renewal can be triggered by eligible Customer or Staff.
+- [ ] Paused subscriptions are excluded from billing runs.
+- [ ] Resume recalculates and persists next billing date.
+- [ ] Repeated scheduled runs do not duplicate transitions, invoices, or emails.
 
-### 12.7 Regression and integration tests
+### 16.7 Add-ons and proration
 
-- M4 can reference a valid Plan.
-- Quotation templates can reference a valid Plan.
-- M4 plan selection respects availability dates.
-- M4 lifecycle actions respect plan settings.
-- M4 renewal flow respects `renewal_mode`.
-- M5 billing continues to exclude paused subscriptions.
-- M3 changes do not rewrite historical invoice or subscription-line data.
+- [ ] Permitted add-ons can be added/removed as subscription lines.
+- [ ] Mid-cycle quantity, Plan, and add-on changes create a charge or credit adjustment.
+- [ ] Proration adjustment is applied to the next invoice, not an immediate refund.
+- [ ] Proration uses Decimal and the approved daily-basis/rounding rules.
+- [ ] Retried operations do not apply the same adjustment twice.
+- [ ] Customer sees a proposed configuration and an estimated charge/credit before confirming.
 
----
+### 16.8 Security, reliability, and performance
 
-## 13. Open decisions and assumptions
-
-The following questions are not fully answered by the source documents and must be confirmed before the corresponding implementation is finalized.
-
-| ID | Open decision | Why it matters | Safe handling until confirmed |
-|---|---|---|---|
-| M3-O1 | Are availability start/end dates both mandatory, or can either be empty to represent an open-ended window? | Affects schema, form validation, and availability queries. | Preserve the source fields; do not invent open-ended semantics. |
-| M3-O2 | Are availability boundaries inclusive? | Determines whether a plan is selectable on the exact start and end dates. | Make the policy explicit before implementation; UI wording should match it. |
-| M3-O3 | Is the end date the last date for new subscription selection, the date subscriptions must close, or both? | FR-3.5 and FR-3.6 use the plan end date in two related but distinct ways. | Implement only the stated behaviors and confirm the intended date semantics. |
-| M3-O4 | Does auto-close close every subscription tied to the plan, or only subscriptions whose own expiry date has passed? | FR-3.6 says the plan is closed by the scheduler, while the state machine refers to plan end date as a closure trigger. | Do not add an extra subscription-expiry filter unless confirmed. |
-| M3-O5 | What happens to subscriptions already Closed, Paused, or not yet Active when auto-close runs? | Determines eligibility and state-transition handling. | Use the existing state machine; define eligible source states with M4. |
-| M3-O6 | What is the scheduler frequency and timezone? | Determines when after the end date the close occurs. | Follow the deployment scheduler convention; do not invent an exact schedule. |
-| M3-O7 | What are the allowed price range and decimal precision? | Affects model constraints and form validation. | Use the project-wide money convention; confirm zero/negative policy. |
-| M3-O8 | Must minimum quantity be at least 1? | Affects model field and validation. | Treat it as a quantity and confirm the lower bound. |
-| M3-O9 | Can plan names repeat? | Affects uniqueness constraints and lookup UX. | Do not add a uniqueness constraint without a decision. |
-| M3-O10 | Can plans be archived or deleted? | Existing subscriptions and templates may reference a plan. | Do not add mandatory archive/delete behavior from inference. |
-| M3-O11 | Can plan fields/prices be edited after the plan is used? If yes, do existing subscriptions retain snapshots or follow updates? | Prevents unintended price changes and historical inconsistency. | Do not rewrite existing subscriptions or invoices automatically. |
-| M3-O12 | If `renewal_mode=automatic` but `allow_renew=false`, what takes precedence? | The two settings are distinct and could conflict. | Enforce renewal permission and confirm the intended configuration rule. |
-| M3-O13 | What calendar arithmetic defines monthly/yearly periods, including month-end and leap-year cases? | Required for next billing dates in M4/M5. | Do not invent date arithmetic in M3; centralize and confirm the shared billing-period rule. |
-| M3-O14 | Does the plan price include any tax? | M3 requirements do not specify tax treatment for plan price in isolation; overall requirements assume product taxes are applied per product and prices are tax-exclusive. | Follow the global tax rules and confirm how plan price is represented in subscription lines. |
-
-### 13.1 Explicit working assumptions
-
-Until the open items are resolved:
-
-- A plan is selectable for a new subscription only within its configured availability window.
-- Existing subscriptions are not automatically invalidated solely because a plan is no longer available for new subscriptions.
-- Lifecycle options are independent per-plan settings.
-- `renewal_mode` is stored separately from the Renew lifecycle option.
-- Automatic closure must use the subscription state machine and be idempotent.
-- Plan prices use fixed-precision decimal storage.
-- The project remains a Django modular monolith with PostgreSQL and the existing Vercel-compatible scheduler approach.
+- [ ] Server-side RBAC is enforced on all protected endpoints/services.
+- [ ] Customer data isolation applies to reads and writes.
+- [ ] Database constraints protect subscription number uniqueness.
+- [ ] Multi-record writes are atomic.
+- [ ] Cron endpoints are secret-protected.
+- [ ] Quote expiry and renewal tasks are idempotent and safe under overlap.
+- [ ] Email failure is logged/retried without rolling back business data.
+- [ ] Subscription and quotation list pages are paginated and avoid N+1 queries.
+- [ ] Relevant pages meet the under-two-second target at thousands of subscriptions, subject to representative performance testing.
 
 ---
 
-## 14. Definition of Done
+## 17. Test plan
 
-M3 is complete when:
+Use `pytest`, `pytest-django`, and `factory-boy` as specified by the coding standards. Tests must not call real external services. Use a test email backend and mock payment-provider boundary. Monetary assertions must use `Decimal`, never float.
 
-- [ ] All six requirements FR-3.1 through FR-3.6 are implemented.
-- [ ] Admin-only plan CRUD/configuration is enforced server-side.
-- [ ] Plan fields and constrained choices are persisted correctly.
-- [ ] Lifecycle options are configurable independently for each plan.
-- [ ] Renewal mode is stored as `automatic` or `manual`.
-- [ ] New subscription plan selection enforces availability dates on the server.
-- [ ] M4 can consume the plan's availability, lifecycle, and renewal configuration.
-- [ ] Scheduled auto-close is implemented using the existing task/scheduler architecture.
-- [ ] Scheduled closure uses the shared subscription transition service.
-- [ ] The scheduled operation is safe to rerun and produces appropriate audit/log records.
-- [ ] Database migrations are included.
-- [ ] Unit, permission, availability, lifecycle, scheduler, and integration tests pass.
-- [ ] `ruff check .` passes.
-- [ ] `ruff format .` or the repository's chosen formatter passes.
-- [ ] `python manage.py makemigrations --check --dry-run` reports no missing migrations.
-- [ ] No unapproved dependencies or out-of-scope features are introduced.
-- [ ] Open decisions affecting implementation are recorded for product confirmation.
+### 17.1 Template management and permissions
+
+1. Admin creates a valid template.
+2. Admin edits name, Plan, validity, and lines.
+3. Blank name rejected.
+4. Invalid/zero/negative validity days rejected (subject to confirmed boundary).
+5. Staff can select/use a template.
+6. Staff cannot create/edit template through UI or direct endpoint/service call.
+7. Customer cannot access template routes.
+8. Template update after subscription creation does not mutate copied subscription lines.
+
+### 17.2 Subscription creation and numbering
+
+1. Create subscription without template.
+2. Create subscription from template.
+3. All template lines copied.
+4. Copied lines can be edited without changing template.
+5. Invalid Customer/Plan/Product references rejected.
+6. Plan unavailable on selected start date rejected server-side.
+7. Required start date, expiry date, and payment terms validated.
+8. Sequential subscription numbers generated.
+9. Concurrent creation attempts do not produce duplicate numbers.
+10. Deleted/closed/failed records do not cause number reuse.
+
+### 17.3 Subscription lines and monetary behavior
+
+1. Valid line amount calculation.
+2. Quantity boundary and invalid quantity.
+3. Client-forged unit price ignored/rejected.
+4. Client-forged tax rate ignored/rejected.
+5. Tax sourced from Product tax.
+6. Decimal precision and rounding behavior.
+7. Add-on line addition and removal.
+8. Multi-line creation rolls back atomically on a failing line.
+
+### 17.4 Lifecycle transitions
+
+1. Draft → Quotation.
+2. Quotation → Confirmed.
+3. Quotation → Closed on expiry.
+4. Confirmed → Active at start date.
+5. Active → Paused when Plan allows.
+6. Active → Paused denied when Plan disallows.
+7. Paused → Active and next billing date recalculated.
+8. Active/Paused → Closed through permitted closure paths.
+9. Invalid transitions rejected.
+10. Concurrent transition attempts do not corrupt status or duplicate audit records.
+11. Every successful transition creates the expected audit event.
+
+### 17.5 Quote acceptance and expiry
+
+1. Customer accepts own valid quotation.
+2. Customer cannot accept another Customer's quotation.
+3. Expired quotation rejected even if browser submits acceptance manually.
+4. Wrong current status rejected.
+5. Boundary test at exact `valid_until` according to the confirmed time semantics.
+6. Expiry task closes eligible quotations.
+7. Repeated/overlapping expiry task does not duplicate transition or email.
+8. Email delivery failure is logged and retriable.
+
+### 17.6 Renewal and payment failure
+
+1. Automatic renewal selects only eligible automatic-mode subscriptions.
+2. Disabled Plan renewal option prevents renewal even if mode is automatic.
+3. Renewal invoice request delegates to M5.
+4. Payment collection delegates to M7 provider interface.
+5. Simulated success clears `payment_failed` as appropriate.
+6. Simulated failure sets `payment_failed`.
+7. Customer notification generated.
+8. Staff notification generated.
+9. Retry/grace policy advances correctly.
+10. Final failure pauses/closes according to configured policy.
+11. Repeated job invocation does not duplicate invoices, state transitions, or notifications.
+12. Manual renewal is available to eligible Customer/Staff and denied otherwise.
+
+### 17.7 Pause, resume, and billing interaction
+
+1. Paused subscription excluded from M5 billing eligibility.
+2. Resume recalculates next billing date.
+3. Invalid resume from non-Paused state rejected.
+4. Unauthorized pause/resume rejected.
+5. Plan option disabled prevents portal action.
+6. Concurrent pause/resume requests remain consistent.
+
+### 17.8 Add-ons and proration
+
+1. Add an add-on mid-cycle.
+2. Remove an add-on mid-cycle.
+3. Increase/decrease quantity mid-cycle.
+4. Upgrade Plan mid-cycle.
+5. Downgrade Plan mid-cycle produces next-invoice credit under current assumption.
+6. Daily-basis day-count boundaries.
+7. Per-line two-decimal half-up rounding under current assumption.
+8. Multiple changes in one cycle do not double-apply adjustments.
+9. Failed transaction leaves subscription and adjustment records consistent.
+10. M5 consumes each proration adjustment once.
+
+### 17.9 Isolation and performance
+
+- Two Customers with separate quotations/subscriptions; verify each sees only own records.
+- Attempt IDOR on detail, line, acceptance, and lifecycle endpoints.
+- Staff/Admin role matrix tests for all M4 operations.
+- Paginated list queries use appropriate related-object loading.
+- Representative load/performance test with thousands of subscriptions for the NFR-1 target.
 
 ---
 
-## 15. Developer self-review checklist
+## 18. Open decisions and assumptions
 
-Complete this checklist when implementing M3 code, in line with `CODING_STANDARDS.md`.
+The following must remain visible in the decision log. Do not convert an assumption into a hidden implementation rule.
 
-| Area | Review question | Status |
+| Topic | Source position / working assumption | Required confirmation |
 |---|---|---|
-| File/component structure | Are models, services, selectors, views, forms, tasks, and tests placed according to the existing project structure? | To verify during implementation |
-| State management | Is PostgreSQL the source of truth? Are subscription transitions delegated to the shared state machine? | To verify during implementation |
-| Unused imports / dead code | Are unused imports, variables, stubs, debug prints, and dead code removed? | To verify during implementation |
-| Dependencies | Were new dependencies avoided unless justified, approved, pinned, and compatible with Vercel? | To verify during implementation |
-| Over-engineering | Were unnecessary abstractions, speculative features, and duplicate domain logic avoided? | To verify during implementation |
-| Security | Are Admin-only operations enforced server-side? Are all inputs validated? Is the scheduled endpoint protected? | To verify during implementation |
-| Error handling | Are invalid transitions rejected, scheduler failures logged, and repeated executions safe? | To verify during implementation |
-
-### Required implementation checks
-
-```bash
-ruff check .
-ruff format .
-python manage.py makemigrations --check --dry-run
-pytest
-```
-
-Run the commands using the project's actual environment and scripts. Record any command that cannot be run and why; do not claim a check passed without executing it.
+| Quote validity without template | FR-4.1 defines template validity days; no-template default is not defined. | Define default validity days when a quotation is created without a template. |
+| Exact quote expiry boundary | “Past validity days” cannot be accepted; exact timestamp/timezone boundary is not explicit. | Define whether acceptance is valid through the end of `valid_until` and which timezone is authoritative. |
+| Template line schema | Template has plan and product lines; complete line attributes are not enumerated. | Confirm whether variants, quantity, unit price overrides, and tax snapshots belong on template lines. |
+| Template archive/delete | Create/edit specified; archive/delete not specified. | Decide whether templates can be archived/deleted and how used templates are retained. |
+| Subscription expiry semantics | Subscription has expiry date; its exact relationship to Plan end date/term is not fully defined. | Confirm expiry calculation and inclusive/exclusive date semantics. |
+| Activation trigger (Open Item H) | Working assumption: Confirmed → Active on start date. Alternative: first payment. | Confirm before implementation; this document follows start date provisionally. |
+| Renewal record model | Manual renewal trigger defined; whether it extends same record or creates a new subscription is not specified. | Decide renewal identity/history behavior and term dates. |
+| Automatic renewal retry policy (Open Item C) | Working assumption: reminders at 1, 7, 14 days past due, then auto-pause; requirement also refers to retry N times and pause/close. | Confirm retry count, intervals, grace period, and final action. Keep configurable until confirmed. |
+| Pause/resume date calculation | Resume recalculates next billing date; formula is not specified. | Define how paused duration affects billing period and next due date. |
+| Cancellation effective date | Cancel/close is supported, but immediate vs end-of-period effect/refund is unspecified. | Define effective date and any financial adjustment behavior. |
+| Plan lifecycle option mapping | M3 provides lifecycle options; exact mapping to all M4 actions must match the actual Plan schema. | Confirm the option controlling each portal action; do not add speculative flags. |
+| Add-on eligibility | Add-ons are subscription lines; universal product eligibility and approval flow are not defined. | Define eligible product types/variants and whether approval is required. |
+| Proration day-count | Working assumption: daily basis; exact boundary/timezone convention unspecified. | Define inclusive/exclusive day counts, leap-day handling, and effective-date rules. |
+| Proration rounding (Open Item J) | Working assumption: per line, 2 decimals, half-up. | Confirm and use shared money helper consistently. |
+| Downgrade credit | Working assumption: credit applied to next invoice, not immediate refund. | Confirm accounting treatment and behavior if no next invoice is generated. |
+| Currency/company | Requirements assume single currency and one company (Open Item D). | Confirm system-wide assumption; M4 should not add multi-currency behavior. |
+| Quantity precision | Requirement says quantity but does not specify integer vs decimal. | Confirm permitted quantity precision based on products/use cases. |
 
 ---
 
-## 16. Source of truth
+## 19. Definition of Done
 
-This document is derived from the Brightloop Subscription Management System source documents:
+- [ ] All FR-4.1 through FR-4.15 behaviors are implemented or explicitly tracked as blocked by an unresolved product decision.
+- [ ] Admin-only template management and Staff template use are enforced in UI and server-side.
+- [ ] Subscription creation supports blank and template-based flows.
+- [ ] Template lines copy into editable subscription lines without mutating the source template.
+- [ ] Subscription number allocation is sequential, unique, concurrency-safe, and never reused.
+- [ ] Subscription lifecycle transitions are centralized, validated, transactional, and audited.
+- [ ] Quote acceptance checks ownership, state, and expiry server-side.
+- [ ] Customer portal actions enforce ownership and Plan lifecycle options.
+- [ ] Automatic/manual renewal paths integrate with M5/M7 boundaries.
+- [ ] Pause excludes subscription from billing; resume recalculates next billing date.
+- [ ] Add-ons and mid-cycle changes create next-invoice proration adjustments.
+- [ ] Decimal arithmetic and approved rounding are used throughout.
+- [ ] Quote-expiry and renewal tasks use protected, idempotent Vercel Cron entry points.
+- [ ] Tests cover success, failure, permissions, concurrency, idempotency, and customer isolation.
+- [ ] `ruff check .` and formatter pass.
+- [ ] `python manage.py makemigrations --check --dry-run` reports no missing migrations.
+- [ ] No secrets, debug prints, dead code, unused imports, or unnecessary dependencies remain.
+- [ ] No persistent local filesystem or in-process scheduler is introduced.
+- [ ] Relevant pages are paginated and avoid N+1 queries.
+- [ ] Deployment migrations are run as an explicit deployment step.
 
-- `REQUIREMENTS.md` — M3 Plans (FR-3.1 through FR-3.6), role–permission matrix, business rules, subscription state machine, and non-functional requirements.
-- `UI_UX.md` — Section 5.5 Plans, subscription plan selection flow, lifecycle action behavior, and validation/error-state requirements.
-- `CODING_STANDARDS.md` — Django modular-monolith structure, PostgreSQL persistence, service/selector boundaries, decimal money handling, auditability, Vercel Cron constraints, idempotency, and testing standards.
+---
 
-Where these sources define behavior, this document preserves it. Where they leave a decision open, the uncertainty is recorded above instead of being silently replaced with an invented rule.
+## 20. Developer self-review checklist
+
+Before considering an M4 change complete, review it against the coding standards:
+
+| Area | Review question |
+|---|---|
+| File/component structure | Do views remain thin, with writes in services and complex reads in selectors? Does the implementation fit the existing app structure? |
+| State management | Is PostgreSQL the source of truth? Are all lifecycle transitions centralized, atomic, and audited? |
+| Unused imports / dead code | Are there unused imports, variables, functions, stubs, commented code, or debug prints? Does Ruff pass? |
+| Dependencies | Was any package added? Is it justified, pinned, and compatible with Vercel/serverless limits? |
+| Over-engineering | Were unnecessary frameworks, abstractions, event buses, queues, or speculative features introduced? |
+| Security | Are permissions checked server-side? Is Customer ownership enforced on reads and writes? Are submitted prices/statuses ignored or validated? |
+| Error handling | Are exceptions narrow and logged? Are batch jobs idempotent? Can one record's failure be isolated from other records? |
+| Money | Are all prices and proration values Decimal-based, with one shared rounding policy? |
+| Concurrency | Are subscription number allocation and lifecycle/renewal mutations safe under concurrent requests/jobs? |
+| Scheduled work | Are cron endpoints protected, bounded, resumable where necessary, and safe to run repeatedly? |
+
+---
+
+## 21. Source-of-truth hierarchy
+
+When implementation details conflict, use this order:
+
+1. `REQUIREMENTS.md` for functional requirements, business rules, role permissions, state machines, and open items.
+2. `UI_UX.md` for screen structure, user flows, status presentation, and interaction behavior, provided it does not contradict requirements.
+3. `CODING_STANDARDS.md` for architecture, security, database, deployment, testing, and code-quality constraints.
+4. Existing repository conventions and implemented shared services, provided they do not violate the documents above.
+5. Explicit product decisions recorded after these documents; update the specification when a decision changes an assumption.
+
+If a behavior is not specified, record it as an open decision rather than silently inventing a requirement.

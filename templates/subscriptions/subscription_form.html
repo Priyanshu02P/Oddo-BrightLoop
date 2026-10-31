@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Create subscription · Brightloop{% endblock %}
+{% block content %}
+<style>
+  .grid { display: grid; gap: 0 1.25rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+  fieldset { border: 0; padding: 0; margin: 0 0 1.25rem; }
+  legend { font-weight: 700; font-size: 1.1rem; margin-bottom: .6rem; }
+</style>
+<p class="help" style="margin:0 0 .5rem"><a href="{% url 'subscriptions:subscription_list' %}">Subscriptions</a></p>
+<h1>Create subscription</h1>
+<form method="post" novalidate class="panel">{% csrf_token %}
+  {% for error in form.non_field_errors %}<div class="alert error" role="alert">{{ error }}</div>{% endfor %}
+  <fieldset>
+    <legend>Customer and plan</legend>
+    <div class="grid">
+      {% include "accounts/_field.html" with field=form.customer %}
+      {% include "accounts/_field.html" with field=form.template %}
+      {% include "accounts/_field.html" with field=form.plan %}
+    </div>
+    <p class="help">A plan can be used for a new subscription only when the start date falls inside its availability window. The server checks this when you save.</p>
+  </fieldset>
+  <fieldset>
+    <legend>Dates and payment terms</legend>
+    <div class="grid">
+      {% include "accounts/_field.html" with field=form.start_date %}
+      {% include "accounts/_field.html" with field=form.expiry_date %}
+      {% include "accounts/_field.html" with field=form.payment_terms %}
+    </div>
+  </fieldset>
+  <p class="help">The subscription is saved as a Draft. Add or edit its lines on the next page, then send the quotation.</p>
+  <div class="actions">
+    <button class="btn" type="submit">Save as Draft</button>
+    <a href="{% url 'subscriptions:subscription_list' %}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,40 @@
+<div class="tablewrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Product</th><th>Variant</th><th class="num">Quantity</th><th class="num">Unit price</th>
+        <th class="num">Tax rate</th><th class="num">Amount</th><th class="num">Tax</th>
+        {% if editable %}<th><span class="help">Actions</span></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in subscription.lines.all %}
+        <tr>
+          <td>{{ line.product.name }}{% if line.is_addon %} <span class="badge draft">Add-on</span>{% endif %}</td>
+          <td>{% if line.variant %}{{ line.variant.dimension }}: {{ line.variant.value }}{% else %}—{% endif %}</td>
+          <td class="num">{{ line.quantity }}</td>
+          <td class="num">{{ line.unit_price|floatformat:"2g" }}</td>
+          <td class="num">{{ line.tax_rate|floatformat:"2" }}%</td>
+          <td class="num">{{ line.amount|floatformat:"2g" }}</td>
+          <td class="num">{{ line.tax_amount|floatformat:"2g" }}</td>
+          {% if editable %}
+            <td class="actions">
+              <a href="{% url 'subscriptions:line_edit' subscription.pk line.pk %}">Edit</a>
+              <form method="post" action="{% url 'subscriptions:line_remove' subscription.pk line.pk %}" style="margin:0">{% csrf_token %}
+                <button class="linklike" style="color:var(--error)" type="submit">Remove</button>
+              </form>
+            </td>
+          {% endif %}
+        </tr>
+      {% empty %}
+        <tr><td colspan="8">This subscription has no lines yet.</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><th scope="row" colspan="5">Total before tax</th><td class="num">{{ subscription.untaxed_total|floatformat:"2g" }}</td><td></td>{% if editable %}<td></td>{% endif %}</tr>
+      <tr><th scope="row" colspan="5">Tax</th><td class="num">{{ subscription.tax_total|floatformat:"2g" }}</td><td></td>{% if editable %}<td></td>{% endif %}</tr>
+      <tr><th scope="row" colspan="5">Total</th><td class="num"><strong>{{ subscription.total|floatformat:"2g" }}</strong></td><td></td>{% if editable %}<td></td>{% endif %}</tr>
+    </tfoot>
+  </table>
+</div>
+<p class="help">Prices and tax are calculated by the server from the catalog and stored on the line when it is saved.</p>

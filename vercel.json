@@ -12,5 +12,9 @@
       "src": "/(.*)",
       "dest": "config/wsgi.py"
     }
+  ],
+  "crons": [
+    { "path": "/app/subscriptions/cron/daily/", "schedule": "0 1 * * *" },
+    { "path": "/app/plans/cron/auto-close/", "schedule": "30 1 * * *" }
   ]
 }

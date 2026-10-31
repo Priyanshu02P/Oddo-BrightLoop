@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.catalog",
     "apps.plans",
+    "apps.subscriptions",
 ]
 
 MIDDLEWARE = [
@@ -137,6 +138,10 @@ THROTTLE_IP_HEADER = env("THROTTLE_IP_HEADER", default="REMOTE_ADDR")
 # closes a plan's subscriptions through the subscription transition service.
 CRON_SECRET = env("CRON_SECRET", default="")
 PLANS_AUTO_CLOSE_HANDLER = env("PLANS_AUTO_CLOSE_HANDLER", default="")
+
+# Quotation validity when a subscription is made without a template (M4 open
+# decision: the requirements only define validity days on templates).
+QUOTATION_DEFAULT_VALIDITY_DAYS = env.int("QUOTATION_DEFAULT_VALIDITY_DAYS", default=30)
 
 
 # Internationalization

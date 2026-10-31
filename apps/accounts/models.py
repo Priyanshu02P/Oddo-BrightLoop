@@ -97,3 +97,24 @@ class AuthAttempt(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["scope", "key", "created_at"])]
+
+
+class AuditLog(models.Model):
+    """Who changed what and when (NFR-5). Written only through apps.accounts.audit."""
+
+    actor = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )  # null = the system (scheduled jobs)
+    action = models.CharField(max_length=64)
+    target_type = models.CharField(max_length=64)
+    target_id = models.PositiveBigIntegerField()
+    from_status = models.CharField(max_length=16, blank=True)
+    to_status = models.CharField(max_length=16, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["target_type", "target_id", "created_at"], name="accounts_audit_target_idx"
+            )
+        ]
