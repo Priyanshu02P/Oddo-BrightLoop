@@ -32,6 +32,16 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
 
+      - name: Verify Neon database configuration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL GitHub secret is missing or empty."
+            exit 1
+          fi
+          echo "Neon database URL is configured."
+
       - name: Run Django system checks
         env:
           SECRET_KEY: 676767676767
